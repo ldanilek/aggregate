@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { query, mutation, action } from "./_generated/server";
 import { api } from "./_generated/api";
-import { insertHandler } from "./btree";
+import { deleteHandler, insertHandler } from "./btree";
 
 // Write your Convex functions in any file inside this directory (`convex`).
 // See https://docs.convex.dev/functions for more.
@@ -50,6 +50,18 @@ export const addNumber = mutation({
     console.log("Added new document with id:", id);
     // Optionally, return a value from your mutation.
     // return id;
+  },
+});
+
+export const removeNumber = mutation({
+  args: { number: v.id("numbers") },
+  handler: async (ctx, args) => {
+    const n = (await ctx.db.get(args.number))!;
+    await ctx.db.delete(args.number);
+    await deleteHandler(ctx, {
+      name: "numbers",
+      key: n.value,
+    });
   },
 });
 

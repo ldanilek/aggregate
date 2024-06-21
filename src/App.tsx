@@ -5,7 +5,13 @@ import { Link } from "@/components/typography/link";
 
 function App() {
   const numbers = useQuery(api.myFunctions.listNumbers, { count: 10 });
+  const numberCount = useQuery(api.btree.count, { name: "numbers" }) ?? 0;
   const addNumber = useMutation(api.myFunctions.addNumber);
+  
+  const numbersByIndex = [];
+  for (let i = 0; i < numberCount; i++) {
+    numbersByIndex.push(<NumberByIndex key={i} i={i} />);
+  }
 
   return (
     <main className="container max-w-2xl flex flex-col gap-8">
@@ -19,7 +25,7 @@ function App() {
       <p>
         <Button
           onClick={() => {
-            void addNumber({ value: Math.floor(Math.random() * 10) });
+            void addNumber({ value: Math.floor(Math.random() * 100) });
           }}
         >
           Add a random number
@@ -33,7 +39,7 @@ function App() {
       </p>
       <div>
         Numbers by index:{" "}
-        {numbers?.map((_n, i) => <NumberByIndex key={i} i={i} />)}
+        {numbersByIndex}
       </div>
       <p>
         Edit{" "}
@@ -61,8 +67,14 @@ function App() {
 
 function NumberByIndex({i}: {i: number}) {
   const n = useQuery(api.btree.atIndex, { name: "numbers", index: i });
+  const removeNumber = useMutation(api.myFunctions.removeNumber);
+
+  if (!n) return <p>Loading...</p>;
+
   return <p>
-    Number at index {i} is {n?.key}
+    Number at index {i} is {n.key}. <button onClick={() => {
+      void removeNumber({ number: n.value });
+    }}>delete</button>
   </p>
 }
 
