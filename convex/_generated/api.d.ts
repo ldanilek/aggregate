@@ -15,6 +15,7 @@ import type {
   FunctionReference,
 } from "convex/server";
 import type * as btree from "../btree.js";
+import type * as compare from "../compare.js";
 import type * as myFunctions from "../myFunctions.js";
 
 /**
@@ -27,6 +28,7 @@ import type * as myFunctions from "../myFunctions.js";
  */
 declare const fullApi: ApiFromModules<{
   btree: typeof btree;
+  compare: typeof compare;
   myFunctions: typeof myFunctions;
 }>;
 export declare const api: FilterApi<

@@ -1,17 +1,23 @@
-import { v } from "convex/values";
+import { Value as ConvexValue, v } from "convex/values";
 import {
   query,
   mutation,
-  action,
   DatabaseReader,
   DatabaseWriter,
 } from "./_generated/server";
-import { api } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
+import { compareValues } from "./compare";
+
+export type Key = ConvexValue;
+export type Value = ConvexValue;
+
+function p(v: ConvexValue): string {
+  return v?.toString() ?? "undefined";
+}
 
 export async function insertHandler(
   ctx: { db: DatabaseWriter },
-  args: { name: string; key: any; value: Id<"numbers"> }
+  args: { name: string; key: Key; value: Value }
 ) {
   const tree = await getOrCreateTree(ctx.db, args.name);
   const pushUp = await insertIntoNode(ctx.db, tree.root, args.key, args.value);
@@ -32,14 +38,14 @@ export const insert = mutation({
   args: {
     name: v.string(),
     key: v.any(),
-    value: v.id("numbers"),
+    value: v.any(),
   },
   handler: insertHandler,
 });
 
 export async function deleteHandler(
   ctx: { db: DatabaseWriter },
-  args: { name: string; key: any }
+  args: { name: string; key: Key }
 ) {
   const tree = (await getTree(ctx.db, args.name))!;
   await deleteFromNode(ctx.db, tree.root, args.key);
@@ -63,6 +69,119 @@ export const deleteKey = mutation({
   handler: deleteHandler,
 });
 
+export async function validateTree(
+  ctx: { db: DatabaseReader },
+  args: { name: string }
+) {
+  const tree = await getTree(ctx.db, args.name);
+  if (!tree) {
+    return;
+  }
+  await validateNode(ctx.db, tree.root, 0);
+}
+
+type ValidationResult = {
+  min: Key;
+  max: Key;
+  height: number;
+};
+
+async function validateNode(
+  db: DatabaseReader,
+  node: Id<"btreeNode">,
+  depth: number
+): Promise<ValidationResult> {
+  const n = await db.get(node);
+  if (!n) {
+    throw new Error(`missing node ${node}`);
+  }
+  if (n.keys.length > MAX_NODE_SIZE) {
+    throw new Error(`node ${node} exceeds max size`);
+  }
+  if (depth > 0 && n.keys.length < MIN_NODE_SIZE) {
+    throw new Error(`non-root node ${node} has less than min-size`);
+  }
+  if (n.keys.length !== n.values.length) {
+    throw new Error(`node ${node} keys do not match values`);
+  }
+  if (n.subtrees.length > 0 && n.keys.length + 1 !== n.subtrees.length) {
+    throw new Error(`node ${node} keys do not match subtrees`);
+  }
+  if (n.subtrees.length > 0 && n.keys.length === 0) {
+    throw new Error(`node ${node} one subtree but no keys`);
+  }
+  // Keys are in increasing order
+  for (let i = 1; i < n.keys.length; i++) {
+    if (compareKeys(n.keys[i - 1], n.keys[i]) !== -1) {
+      throw new Error(`node ${node} keys not in order`);
+    }
+  }
+  const validatedSubtrees = await Promise.all(
+    n.subtrees.map((subtree) => validateNode(db, subtree, depth + 1))
+  );
+  for (let i = 0; i < n.subtrees.length; i++) {
+    // Each subtree's min is greater than the key at the prior index
+    if (i > 0 && compareKeys(validatedSubtrees[i].min, n.keys[i - 1]) !== 1) {
+      throw new Error(`subtree ${i} min is too small for node ${node}`);
+    }
+    // Each subtree's max is less than the key at the same index
+    if (
+      i < n.keys.length &&
+      compareKeys(validatedSubtrees[i].max, n.keys[i]) !== -1
+    ) {
+      throw new Error(`subtree ${i} max is too large for node ${node}`);
+    }
+  }
+  // All subtrees have the same height.
+  const heights = validatedSubtrees.map((s) => s.height);
+  for (let i = 1; i < heights.length; i++) {
+    if (heights[i] !== heights[0]) {
+      throw new Error(`subtree ${i} has different height from others`);
+    }
+  }
+
+  // Node count matches sum of subtree counts plus key count.
+  const counts = await subtreeCounts(db, n);
+  if (sum(counts) + n.keys.length !== n.count) {
+    throw new Error(`node ${node} count does not match subtrees`);
+  }
+
+  const max =
+    validatedSubtrees.length > 0
+      ? validatedSubtrees[validatedSubtrees.length - 1].max
+      : n.keys[n.keys.length - 1];
+  const min =
+    validatedSubtrees.length > 0 ? validatedSubtrees[0].min : n.keys[0];
+  const height = validatedSubtrees.length > 0 ? 1 + heights[0] : 0;
+  return { min, max, height };
+}
+
+export async function dumpTree(db: DatabaseReader, name: string) {
+  const t = (await getTree(db, name))!;
+  return dumpNode(db, t.root);
+}
+
+async function dumpNode(
+  db: DatabaseReader,
+  node: Id<"btreeNode">
+): Promise<string> {
+  const n = (await db.get(node))!;
+  let s = "[";
+  if (n.subtrees.length === 0) {
+    s += n.keys.map(p).join(", ");
+  } else {
+    const subtrees = await Promise.all(
+      n.subtrees.map((subtree) => dumpNode(db, subtree))
+    );
+    for (let i = 0; i < n.keys.length; i++) {
+      s += `${subtrees[i]}, ${p(n.keys[i])}, `;
+    }
+    s += subtrees[n.keys.length];
+  }
+  s += "]";
+  return s;
+}
+
 export const count = query({
   args: { name: v.string() },
   handler: async (ctx, args) => {
@@ -77,21 +196,26 @@ export const count = query({
 
 export const atIndex = query({
   args: { name: v.string(), index: v.number() },
-  handler: async (ctx, args) => {
-    const tree = (await getTree(ctx.db, args.name))!;
-    return await atIndexInNode(ctx.db, tree.root, args.index);
-  },
+  handler: atIndexHandler,
 });
 
+export async function atIndexHandler(
+  ctx: { db: DatabaseReader },
+  args: { name: string; index: number }
+) {
+  const tree = (await getTree(ctx.db, args.name))!;
+  return await atIndexInNode(ctx.db, tree.root, args.index);
+}
+
 export type KeyValue = {
-  key: any;
-  value: Id<"numbers">;
+  key: Key;
+  value: Value;
 };
 
 async function deleteFromNode(
   db: DatabaseWriter,
   node: Id<"btreeNode">,
-  key: any
+  key: Key
 ) {
   let n = (await db.get(node))!;
   let i = 0;
@@ -102,7 +226,7 @@ async function deleteFromNode(
       break;
     }
     if (compare === 0) {
-      console.log(`found key ${key} in node ${n._id}`);
+      console.log(`found key ${p(key)} in node ${n._id}`);
       // we've found the key. delete it.
       if (n.subtrees.length === 0) {
         // if this is a leaf node, just delete the key
@@ -115,7 +239,7 @@ async function deleteFromNode(
       }
       // if this is an internal node, replace the key with the predecessor
       const predecessor = await negativeIndexInNode(db, n.subtrees[i], 0);
-      console.log(`replacing ${key} with predecessor ${predecessor.key}`);
+      console.log(`replacing ${p(key)} with predecessor ${p(predecessor.key)}`);
       await db.patch(node, {
         keys: [...n.keys.slice(0, i), predecessor.key, ...n.keys.slice(i + 1)],
         values: [
@@ -132,7 +256,7 @@ async function deleteFromNode(
   }
   // delete from subtree i
   if (n.subtrees.length === 0) {
-    throw new Error(`key ${key} not found in node ${n._id}`);
+    throw new Error(`key ${p(key)} not found in node ${n._id}`);
   }
   await deleteFromNode(db, n.subtrees[i], key);
   await db.patch(node, {
@@ -328,8 +452,8 @@ type PushUp = {
   rightSubtree: Id<"btreeNode">;
   leftSubtreeCount: number;
   rightSubtreeCount: number;
-  key: any;
-  value: Id<"numbers">;
+  key: Key;
+  value: Value;
 };
 
 const MAX_NODE_SIZE = 4;
@@ -338,8 +462,8 @@ const MIN_NODE_SIZE = 2;
 async function insertIntoNode(
   db: DatabaseWriter,
   node: Id<"btreeNode">,
-  key: any,
-  value: Id<"numbers">
+  key: Key,
+  value: Value
 ): Promise<PushUp | null> {
   const n = (await db.get(node))!;
   let i = 0;
@@ -350,7 +474,7 @@ async function insertIntoNode(
       break;
     }
     if (compare === 0) {
-      throw new Error(`key ${key} already exists in node ${n._id}`);
+      throw new Error(`key ${p(key)} already exists in node ${n._id}`);
     }
   }
   // insert key before index i
@@ -428,19 +552,11 @@ async function insertIntoNode(
   return null;
 }
 
-function compareKeys(k1: any, k2: any) {
-  // TODO: compare all values
-  // this mostly works for numbers.
-  if (k1 < k2) {
-    return -1;
-  }
-  if (k1 === k2) {
-    return 0;
-  }
-  return 1;
+function compareKeys(k1: Key, k2: Key) {
+  return compareValues(k1, k2);
 }
 
-async function getTree(db: DatabaseReader, name: string) {
+export async function getTree(db: DatabaseReader, name: string) {
   return await db
     .query("btree")
     .withIndex("name", (q) => q.eq("name", name))
