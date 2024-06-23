@@ -1,6 +1,7 @@
 import { v } from "convex/values";
-import { query, mutation } from "./_generated/server";
-import { atIndexHandler, deleteHandler, insertHandler } from "./btree";
+import { query } from "./_generated/server";
+import { atIndexHandler, countHandler } from "./btree";
+import { mutationWithBTree } from "./mutationWithBTree";
 
 // Write your Convex functions in any file inside this directory (`convex`).
 // See https://docs.convex.dev/functions for more.
@@ -25,8 +26,14 @@ export const listNumbers = query({
   },
 });
 
+const mutationWithNumbers = mutationWithBTree({
+  tableName: "numbers",
+  btreeName: "numbers",
+  getKey: (doc) => doc.value,
+});
+
 // You can write data to the database via a mutation:
-export const addNumber = mutation({
+export const addNumber = mutationWithNumbers({
   // Validators for arguments.
   args: {
     value: v.number(),
@@ -40,27 +47,16 @@ export const addNumber = mutation({
 
     const id = await ctx.db.insert("numbers", { value: args.value });
 
-    await insertHandler(ctx, {
-      name: "numbers",
-      key: args.value,
-      value: id,
-    });
-
     console.log("Added new document with id:", id);
     // Optionally, return a value from your mutation.
     // return id;
   },
 });
 
-export const removeNumber = mutation({
+export const removeNumber = mutationWithNumbers({
   args: { number: v.id("numbers") },
   handler: async (ctx, args) => {
-    const n = (await ctx.db.get(args.number))!;
-    await ctx.db.delete(args.number);
-    await deleteHandler(ctx, {
-      name: "numbers",
-      key: n.value,
-    });
+    await ctx.db.delete("numbers", args.number);
   },
 });
 
@@ -68,5 +64,11 @@ export const numberAtIndex = query({
   args: { index: v.number() },
   handler: async (ctx, args) => {
     return await atIndexHandler(ctx, { name: "numbers", index: args.index });
+  },
+});
+
+export const countNumbers = query({
+  handler: async (ctx) => {
+    return countHandler(ctx, { name: "numbers" });
   },
 });

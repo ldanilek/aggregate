@@ -1,18 +1,26 @@
 import { Value as ConvexValue, v } from "convex/values";
 import {
-  query,
-  mutation,
   DatabaseReader,
   DatabaseWriter,
+  internalQuery,
+  internalMutation,
 } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 import { compareValues } from "./compare";
+
+const BTREE_DEBUG = process.env.BTREE_DEBUG === "true";
 
 export type Key = ConvexValue;
 export type Value = ConvexValue;
 
 function p(v: ConvexValue): string {
   return v?.toString() ?? "undefined";
+}
+
+function log(s: string) {
+  if (BTREE_DEBUG) {
+    log(s);
+  }
 }
 
 export async function insertHandler(
@@ -34,7 +42,7 @@ export async function insertHandler(
   }
 }
 
-export const insert = mutation({
+export const insert = internalMutation({
   args: {
     name: v.string(),
     key: v.any(),
@@ -51,7 +59,7 @@ export async function deleteHandler(
   await deleteFromNode(ctx.db, tree.root, args.key);
   const root = (await ctx.db.get(tree.root))!;
   if (root.keys.length === 0 && root.subtrees.length === 1) {
-    console.log(
+    log(
       `collapsing root ${root._id} because its only child is ${root.subtrees[0]}`
     );
     await ctx.db.patch(tree._id, {
@@ -61,7 +69,7 @@ export async function deleteHandler(
   }
 }
 
-export const deleteKey = mutation({
+export const deleteKey = internalMutation({
   args: {
     name: v.string(),
     key: v.any(),
@@ -182,19 +190,63 @@ async function dumpNode(
   return s;
 }
 
-export const count = query({
+export const count = internalQuery({
   args: { name: v.string() },
-  handler: async (ctx, args) => {
-    const tree = (await getTree(ctx.db, args.name))!;
-    if (!tree) {
-      return 0;
-    }
-    const root = (await ctx.db.get(tree.root))!;
-    return root.count;
-  },
+  handler: countHandler,
 });
 
-export const atIndex = query({
+export async function countHandler(
+  ctx: { db: DatabaseReader },
+  args: { name: string }
+) {
+  const tree = (await getTree(ctx.db, args.name))!;
+  if (!tree) {
+    return 0;
+  }
+  const root = (await ctx.db.get(tree.root))!;
+  return root.count;
+}
+
+export async function getHandler(
+  ctx: { db: DatabaseReader },
+  args: { name: string; key: Key }
+) {
+  const tree = (await getTree(ctx.db, args.name))!;
+  return await getInNode(ctx.db, tree.root, args.key);
+}
+
+export const get = internalQuery({
+  args: { name: v.string(), key: v.any() },
+  handler: getHandler,
+});
+
+async function getInNode(
+  db: DatabaseReader,
+  node: Id<"btreeNode">,
+  key: Key
+): Promise<KeyValue | null> {
+  const n = (await db.get(node))!;
+  let i = 0;
+  for (; i < n.keys.length; i++) {
+    const compare = compareKeys(key, n.keys[i]);
+    if (compare === -1) {
+      // if key < n.keys[i], recurse to the left of index i
+      break;
+    }
+    if (compare === 0) {
+      return {
+        key: n.keys[i],
+        value: n.values[i],
+      };
+    }
+  }
+  if (n.subtrees.length === 0) {
+    return null;
+  }
+  return await getInNode(db, n.subtrees[i], key);
+}
+
+export const atIndex = internalQuery({
   args: { name: v.string(), index: v.number() },
   handler: atIndexHandler,
 });
@@ -205,6 +257,51 @@ export async function atIndexHandler(
 ) {
   const tree = (await getTree(ctx.db, args.name))!;
   return await atIndexInNode(ctx.db, tree.root, args.index);
+}
+
+export async function rankHandler(
+  ctx: { db: DatabaseReader },
+  args: { name: string; key: Key }
+) {
+  const tree = (await getTree(ctx.db, args.name))!;
+  return await rankInNode(ctx.db, tree.root, args.key);
+}
+
+export const rank = internalQuery({
+  args: { name: v.string(), key: v.any() },
+  handler: rankHandler,
+});
+
+async function rankInNode(
+  db: DatabaseReader,
+  node: Id<"btreeNode">,
+  key: Key
+): Promise<number | null> {
+  const n = (await db.get(node))!;
+  let i = 0;
+  for (; i < n.keys.length; i++) {
+    const compare = compareKeys(key, n.keys[i]);
+    if (compare === -1) {
+      // if key < n.keys[i], recurse to the left of index i
+      break;
+    }
+    if (compare === 0) {
+      if (n.subtrees.length === 0) {
+        return i;
+      }
+      const subCounts = await subtreeCounts(db, n);
+      return sum(subCounts.slice(0, i)) + i;
+    }
+  }
+  if (n.subtrees.length === 0) {
+    return null;
+  }
+  const subCounts = await subtreeCounts(db, n);
+  const rankInSubtree = await rankInNode(db, n.subtrees[i], key);
+  if (rankInSubtree === null) {
+    return null;
+  }
+  return sum(subCounts.slice(0, i)) + i + rankInSubtree;
 }
 
 export type KeyValue = {
@@ -226,7 +323,7 @@ async function deleteFromNode(
       break;
     }
     if (compare === 0) {
-      console.log(`found key ${p(key)} in node ${n._id}`);
+      log(`found key ${p(key)} in node ${n._id}`);
       // we've found the key. delete it.
       if (n.subtrees.length === 0) {
         // if this is a leaf node, just delete the key
@@ -239,7 +336,7 @@ async function deleteFromNode(
       }
       // if this is an internal node, replace the key with the predecessor
       const predecessor = await negativeIndexInNode(db, n.subtrees[i], 0);
-      console.log(`replacing ${p(key)} with predecessor ${p(predecessor.key)}`);
+      log(`replacing ${p(key)} with predecessor ${p(predecessor.key)}`);
       await db.patch(node, {
         keys: [...n.keys.slice(0, i), predecessor.key, ...n.keys.slice(i + 1)],
         values: [
@@ -266,13 +363,13 @@ async function deleteFromNode(
   // Now we need to check if the subtree at index i is too small
   const deficientSubtree = (await db.get(n.subtrees[i]))!;
   if (deficientSubtree.keys.length < MIN_NODE_SIZE) {
-    console.log(`deficient subtree ${deficientSubtree._id}`);
+    log(`deficient subtree ${deficientSubtree._id}`);
     // If the subtree is too small, we need to rebalance
     if (i > 0) {
       // Try to move a key from the left sibling
       const leftSibling = (await db.get(n.subtrees[i - 1]))!;
       if (leftSibling.keys.length > MIN_NODE_SIZE) {
-        console.log(`rotating right with left sibling ${leftSibling._id}`);
+        log(`rotating right with left sibling ${leftSibling._id}`);
         // Rotate right
         const grandchild = leftSibling.subtrees.length
           ? await db.get(leftSibling.subtrees[leftSibling.subtrees.length - 1])
@@ -313,7 +410,7 @@ async function deleteFromNode(
       // Try to move a key from the right sibling
       const rightSibling = (await db.get(n.subtrees[i + 1]))!;
       if (rightSibling.keys.length > MIN_NODE_SIZE) {
-        console.log(`rotating left with right sibling ${rightSibling._id}`);
+        log(`rotating left with right sibling ${rightSibling._id}`);
         // Rotate left
         const grandchild = rightSibling.subtrees.length
           ? await db.get(rightSibling.subtrees[0])
@@ -350,11 +447,11 @@ async function deleteFromNode(
     }
     // If we can't rotate, we need to merge
     if (i > 0) {
-      console.log(`merging with left sibling`);
+      log(`merging with left sibling`);
       // Merge with left sibling
       await mergeNodes(db, n, i - 1);
     } else {
-      console.log(`merging with right sibling`);
+      log(`merging with right sibling`);
       // Merge with right sibling
       await mergeNodes(db, n, i);
     }
@@ -368,7 +465,7 @@ async function mergeNodes(
 ) {
   const left = (await db.get(parent.subtrees[leftIndex]))!;
   const right = (await db.get(parent.subtrees[leftIndex + 1]))!;
-  console.log(`merging ${right._id} into ${left._id}`);
+  log(`merging ${right._id} into ${left._id}`);
   await db.patch(left._id, {
     keys: [...left.keys, parent.keys[leftIndex], ...right.keys],
     values: [...left.values, parent.values[leftIndex], ...right.values],
@@ -511,7 +608,7 @@ async function insertIntoNode(
     ) {
       throw new Error(`bad ${newN.keys.length}`);
     }
-    console.log(`splitting node ${newN._id} at ${newN.keys[MIN_NODE_SIZE]}`);
+    log(`splitting node ${newN._id} at ${newN.keys[MIN_NODE_SIZE]}`);
     const subCounts = await subtreeCounts(db, newN);
     const leftCount =
       MIN_NODE_SIZE +
