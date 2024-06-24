@@ -1,8 +1,4 @@
-import {
-  customMutation,
-  customQuery,
-} from "convex-helpers/server/customFunctions";
-import { DatabaseReader, mutation, query } from "./_generated/server";
+import { DatabaseReader } from "./_generated/server";
 import {
   DocumentByName,
   GenericDataModel,
@@ -19,19 +15,8 @@ import {
   getHandler,
   insertHandler,
   rankHandler,
-} from "./btree";
+} from "./btree/btree";
 import { GenericId } from "convex/values";
-
-export type AttachBTree<
-  DataModel extends GenericDataModel,
-  T extends TableNamesInDataModel<DataModel>,
-  K extends Key,
-  Name extends string,
-> = {
-  tableName: T;
-  btreeName: Name;
-  getKey: (doc: DocumentByName<DataModel, T>) => K;
-};
 
 export function queryWithBTree<
   DataModel extends GenericDataModel,
@@ -39,13 +24,17 @@ export function queryWithBTree<
   K extends Key,
   Name extends string,
 >(btree: AttachBTree<DataModel, T, K, Name>) {
-  return customQuery(query, {
+  return {
     args: {},
-    input: async (ctx, _args) => {
+    input: async (ctx: any, _args: any) => {
       const tree = new BTree<DataModel, T, K>(ctx, btree.btreeName);
-      return { ctx: { [btree.btreeName]: tree } as Record<Name, typeof tree>, args: {} };
+      // TODO: figure out how to attach it with a dynamic Name.
+      return {
+        ctx: { tree },
+        args: {},
+      } as const;
     },
-  });
+  } as const;
 }
 
 export function mutationWithBTree<
@@ -54,14 +43,17 @@ export function mutationWithBTree<
   K extends Key,
   Name extends string,
 >(btree: AttachBTree<DataModel, T, K, Name>) {
-  return customMutation(mutation, {
+  return {
     args: {},
-    input: async (ctx, _args) => {
+    input: async (ctx: any, _args: any) => {
       const db = new WrapWriter(ctx.db, btree);
       const tree = new BTree<DataModel, T, K>(ctx, btree.btreeName);
-      return { ctx: { db, [btree.btreeName]: tree } as ({ db: typeof db } & Record<Name, typeof tree>), args: {} };
+      return {
+        ctx: { db, tree },
+        args: {},
+      };
     },
-  });
+  };
 }
 
 export class BTree<
@@ -111,7 +103,15 @@ export class BTree<
   async countBetween(k1: K, k2: K): Promise<number> {
     return await countBetweenHandler(this.ctx, { name: this.name, k1, k2 });
   }
-  // TODO: iter between
+  async random(): Promise<{ key: K; value: GenericId<T> } | null> {
+    const count = await this.count();
+    if (count === 0) {
+      return null;
+    }
+    const index = Math.floor(Math.random() * count);
+    return await this.at(index);
+  }
+  // TODO: iter between keys
 }
 
 class WrapWriter<
@@ -231,3 +231,14 @@ class WrapWriter<
     return this.db.query(tableName);
   }
 }
+
+export type AttachBTree<
+  DataModel extends GenericDataModel,
+  T extends TableNamesInDataModel<DataModel>,
+  K extends Key,
+  Name extends string,
+> = {
+  tableName: T;
+  btreeName: Name;
+  getKey: (doc: DocumentByName<DataModel, T>) => K;
+};

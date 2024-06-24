@@ -14,10 +14,10 @@ import type {
   FilterApi,
   FunctionReference,
 } from "convex/server";
-import type * as btree from "../btree.js";
-import type * as compare from "../compare.js";
-import type * as mutationWithBTree from "../mutationWithBTree.js";
+import type * as btree_btree from "../btree/btree.js";
+import type * as btree_compare from "../btree/compare.js";
 import type * as myFunctions from "../myFunctions.js";
+import type * as withBTree from "../withBTree.js";
 
 /**
  * A utility for referencing Convex functions in your app's API.
@@ -28,10 +28,10 @@ import type * as myFunctions from "../myFunctions.js";
  * ```
  */
 declare const fullApi: ApiFromModules<{
-  btree: typeof btree;
-  compare: typeof compare;
-  mutationWithBTree: typeof mutationWithBTree;
+  "btree/btree": typeof btree_btree;
+  "btree/compare": typeof btree_compare;
   myFunctions: typeof myFunctions;
+  withBTree: typeof withBTree;
 }>;
 export declare const api: FilterApi<
   typeof fullApi,

@@ -4,8 +4,8 @@ import {
   DatabaseWriter,
   internalQuery,
   internalMutation,
-} from "./_generated/server";
-import { Doc, Id } from "./_generated/dataModel";
+} from "../_generated/server";
+import { Doc, Id } from "../_generated/dataModel";
 import { compareValues } from "./compare";
 
 const BTREE_DEBUG = process.env.BTREE_DEBUG === "true";
@@ -423,7 +423,10 @@ async function deleteFromNode(
   }
   // delete from subtree i
   if (n.subtrees.length === 0) {
-    throw new Error(`key ${p(key)} not found in node ${n._id}`);
+    log(`key ${p(key)} not found in node ${n._id}`);
+    // TODO: consider throwing.
+    // For now we don't throw to support patching to backfill.
+    return;
   }
   await deleteFromNode(db, n.subtrees[i], key);
   await db.patch(node, {

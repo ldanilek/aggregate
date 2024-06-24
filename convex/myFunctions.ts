@@ -1,17 +1,28 @@
 import { v } from "convex/values";
-import { mutationWithBTree, queryWithBTree } from "./mutationWithBTree";
+import { mutationWithBTree, queryWithBTree } from "./withBTree";
+import {
+  customMutation,
+  customQuery,
+} from "convex-helpers/server/customFunctions";
+import { mutation, query } from "./_generated/server";
 
-const mutationWithNumbers = mutationWithBTree({
-  tableName: "numbers",
-  btreeName: "numbers",
-  getKey: (doc) => doc.value,
-});
+const mutationWithNumbers = customMutation(
+  mutation,
+  mutationWithBTree({
+    tableName: "numbers",
+    btreeName: "numbers",
+    getKey: (doc) => doc.value,
+  })
+);
 
-const queryWithNumbers = queryWithBTree({
-  tableName: "numbers",
-  btreeName: "numbers",
-  getKey: (doc) => doc.value,
-});
+const queryWithNumbers = customQuery(
+  query,
+  queryWithBTree({
+    tableName: "numbers",
+    btreeName: "numbers",
+    getKey: (doc) => doc.value,
+  })
+);
 
 // Write your Convex functions in any file inside this directory (`convex`).
 // See https://docs.convex.dev/functions for more.
@@ -43,7 +54,7 @@ export const addNumber = mutationWithNumbers({
     //// Mutations can also read from the database like queries.
     //// See https://docs.convex.dev/database/writing-data.
 
-    const exists = (await ctx.numbers.get(args.value)) !== null;
+    const exists = (await ctx.tree.get(args.value)) !== null;
     if (exists) {
       console.log("skipped adding duplicate", args.value);
     }
@@ -66,12 +77,12 @@ export const removeNumber = mutationWithNumbers({
 export const numberAtIndex = queryWithNumbers({
   args: { index: v.number() },
   handler: async (ctx, args) => {
-    return ctx.numbers.at(args.index);
+    return ctx.tree.at(args.index);
   },
 });
 
 export const countNumbers = queryWithNumbers({
   handler: async (ctx) => {
-    return await ctx.numbers.count();
+    return await ctx.tree.count();
   },
 });

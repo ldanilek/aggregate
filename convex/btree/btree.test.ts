@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { convexTest } from "convex-test";
-import schema from "./schema";
-import { modules } from "./setup.test";
+import schema from "../schema";
+import { modules } from "../setup.test";
 import {
   atIndexHandler,
   countBetweenHandler,
