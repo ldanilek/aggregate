@@ -20,19 +20,14 @@ See the `class BTree` methods for operations you can do.
 NOTE: once Convex ships the upcoming "components" project, installation
 will hopefully become simpler.
 
-1. Copy the `btree/` directory and `withBTree.ts` into your `convex/` folder.
+1. Copy the `btree/` directory into your `convex/` folder.
 2. Add the `btree` and `btreeNode` tables to your schema.
 3. Using the pattern from `myFunctions.ts`, call `mutationWithBTree` and `queryWithBTree` and use those custom queries and mutations in place of normal `query` and `mutation`.
    - Replacing usages of normal `mutation` is important, because it allows the BTree implementation to track changes to the table.
 4. Access the BTree methods as `ctx.tree`.
+5. Change usages of `ctx.db` mutation methods that only take in an ID to also take in a table name, like `ctx.db.delete(messageId)` -> `ctx.db.delete("messages", messageId)`.
 
-If you have existing data in the table, you will need to populate the BTree so it can track existing documents. You can do something like this, although if you have too many documents you may need to paginate. Alternatively you could clear the table and recreate all documents.
-
-```js
-for await (const doc of ctx.db.query("numbers")) {
-  await ctx.db.patch(doc._id, {});
-}
-```
+If you have existing data in the table, you will need to populate the BTree so it can track existing documents. You can define and call a method like the example `backfillBTree`.
 
 Note that modifying the table in the dashboard will not update the BTree. To keep the BTree in sync with the table, you must use the custom mutations from step 3.
 

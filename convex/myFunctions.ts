@@ -86,3 +86,12 @@ export const countNumbers = queryWithNumbers({
     return await ctx.tree.count();
   },
 });
+
+export const backfillBTree = mutationWithNumbers({
+  args: {},
+  handler: async (ctx) => {
+    for await (const doc of ctx.db.query("numbers")) {
+      await ctx.db.patch("numbers", doc._id, {});
+    }
+  },
+});
