@@ -4,6 +4,7 @@ import schema from "./schema";
 import { modules } from "./setup.test";
 import {
   atIndexHandler,
+  countBetweenHandler,
   deleteHandler,
   getHandler,
   insertHandler,
@@ -121,6 +122,39 @@ describe("btree", () => {
       await checkRank(-1, 0);
       await checkRank(10, 11);
       await checkRank(5, 6);
+    });
+  });
+
+  test("countBetween", async () => {
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      async function insert(key: number, value: string) {
+        await insertHandler(ctx, { name: "foo", key, value });
+        await validateTree(ctx, { name: "foo" });
+      }
+      async function countBetween(
+        k1: number | undefined,
+        k2: number | undefined,
+        count: number
+      ) {
+        const c = await countBetweenHandler(ctx, { name: "foo", k1, k2 });
+        expect(c).toEqual(count);
+      }
+      await insert(0, "a");
+      await insert(1, "a");
+      await insert(2, "d");
+      await insert(3, "c");
+      await insert(4, "b");
+      await insert(5, "e");
+      await insert(6, "e");
+      await insert(7, "e");
+      await insert(8, "e");
+      await insert(9, "e");
+      await countBetween(-1, 10, 10);
+      await countBetween(undefined, undefined, 10);
+      await countBetween(4, 6, 1);
+      await countBetween(0.5, 8.5, 8);
+      await countBetween(6, 9, 2);
     });
   });
 });

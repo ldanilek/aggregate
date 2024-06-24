@@ -207,6 +207,76 @@ export async function countHandler(
   return root.count;
 }
 
+/// Count of keys that are *strictly* between k1 and k2.
+/// If k1 or k2 are undefined, that bound is unlimited.
+export async function countBetweenHandler(
+  ctx: { db: DatabaseReader },
+  args: { name: string; k1?: Key; k2?: Key }
+) {
+  const tree = (await getTree(ctx.db, args.name))!;
+  return await countBetweenInNode(ctx.db, tree.root, args.k1, args.k2);
+}
+
+export const countBetween = internalQuery({
+  args: { name: v.string(), k1: v.optional(v.any()), k2: v.optional(v.any()) },
+  handler: countBetweenHandler,
+});
+
+async function countBetweenInNode(
+  db: DatabaseReader,
+  node: Id<"btreeNode">,
+  k1?: Key,
+  k2?: Key
+) {
+  const n = (await db.get(node))!;
+  const subCounts = await subtreeCounts(db, n);
+  let count = 0;
+  let i = 0;
+  let foundLeftSide = false;
+  let foundLeftSidePreviously = false;
+  for (; i < n.keys.length; i++) {
+    foundLeftSidePreviously = foundLeftSide;
+    const containsK1 = k1 === undefined || compareKeys(k1, n.keys[i]) === -1;
+    const containsK2 = k2 !== undefined && compareKeys(k2, n.keys[i]) !== 1;
+    if (!foundLeftSide) {
+      if (containsK1) {
+        // k1 is within n.subtree[i].
+        foundLeftSide = true;
+        if (n.subtrees.length > 0) {
+          count += await countBetweenInNode(
+            db,
+            n.subtrees[i],
+            k1,
+            containsK2 ? k2 : undefined
+          );
+        }
+      }
+    }
+    if (foundLeftSide) {
+      if (containsK2) {
+        // k2 is within n.subtree[i].
+        // So i is the final index to look at.
+        break;
+      }
+      // count n.keys[i]
+      count++;
+      // count n.subtrees[i] if we didn't already
+      if (n.subtrees.length > 0 && foundLeftSidePreviously) {
+        count += subCounts[i];
+      }
+    }
+  }
+  if (n.subtrees.length > 0) {
+    count += await countBetweenInNode(
+      db,
+      n.subtrees[i],
+      foundLeftSide ? undefined : k1,
+      k2
+    );
+  }
+  return count;
+}
+
 export async function getHandler(
   ctx: { db: DatabaseReader },
   args: { name: string; key: Key }

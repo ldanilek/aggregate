@@ -1,37 +1,96 @@
 
 import { customMutation } from "convex-helpers/server/customFunctions";
-import { mutation } from "./_generated/server";
+import { DatabaseReader, mutation } from "./_generated/server";
 import { DocumentByName, GenericDataModel, GenericDatabaseWriter, QueryInitializer, TableNamesInDataModel } from "convex/server";
-import { Key, deleteHandler, insertHandler } from "./btree";
+import { Key, atIndexHandler, countBetweenHandler, countHandler, deleteHandler, getHandler, insertHandler, rankHandler } from "./btree";
 import { GenericId } from "convex/values";
 
-export type AttachBTree<DataModel extends GenericDataModel, T extends TableNamesInDataModel<DataModel>> = {
+export type AttachBTree<DataModel extends GenericDataModel, T extends TableNamesInDataModel<DataModel>, K extends Key> = {
   tableName: T;
   btreeName: string;
-  getKey: (doc: DocumentByName<DataModel, T>) => Key;
+  getKey: (doc: DocumentByName<DataModel, T>) => K;
 };
 
-export function mutationWithBTree<DataModel extends GenericDataModel, T extends TableNamesInDataModel<DataModel>>(
-  btree: AttachBTree<DataModel, T>,
+export function mutationWithBTree<
+  DataModel extends GenericDataModel,
+  T extends TableNamesInDataModel<DataModel>,
+  K extends Key,
+>(
+  btree: AttachBTree<DataModel, T, K>,
 ) {
   return customMutation(mutation, {
-  args: {},
-  input: async (ctx, _args) => {
-    const db = new WrapWriter(ctx.db, btree);
-    return { ctx: { db }, args: {} };
-  },
-});
+    args: {},
+    input: async (ctx, _args) => {
+      const db = new WrapWriter(ctx.db, btree);
+      return { ctx: { db }, args: {} };
+    },
+  });
 }
 
-class WrapWriter<DataModel extends GenericDataModel, T extends TableNamesInDataModel<DataModel>>
+export class BTree<
+  DataModel extends GenericDataModel,
+  T extends TableNamesInDataModel<DataModel>,
+  K extends Key,
+> {
+  ctx: { db: DatabaseReader };
+  name: string;
+
+  constructor(ctx: { db: DatabaseReader }, name: string) {
+    this.ctx = ctx;
+    this.name = name;
+  }
+  async get(key: K): Promise<GenericId<T> | null> {
+    const keyValue = await getHandler(this.ctx, { name: this.name, key });
+    if (keyValue === null) {
+      return null;
+    }
+    return keyValue.value as GenericId<T>;
+  }
+  async at(index: number): Promise<{ key: K; value: GenericId<T> }> {
+    const keyValue = await atIndexHandler(this.ctx, { name: this.name, index });
+    return keyValue as { key: K; value: GenericId<T> };
+  }
+  async indexOf(key: K): Promise<number | null> {
+    return await rankHandler(this.ctx, { name: this.name, key });
+  }
+  async count(): Promise<number> {
+    return await countHandler(this.ctx, { name: this.name });
+  }
+  async min(): Promise<{ key: K; value: GenericId<T> } | null> {
+    const count = await this.count();
+    if (count === 0) {
+      return null;
+    }
+    return await this.at(0);
+  }
+  async max(): Promise<{ key: K; value: GenericId<T> } | null> {
+    const count = await this.count();
+    if (count === 0) {
+      return null;
+    }
+    return await this.at(count - 1);
+  }
+  async countBetween(k1: K, k2: K): Promise<number> {
+    return await countBetweenHandler(this.ctx, { name: this.name, k1, k2 });
+  }
+}
+// TODO: count between
+// TODO: iter between
+
+
+class WrapWriter<
+  DataModel extends GenericDataModel,
+  T extends TableNamesInDataModel<DataModel>,
+  K extends Key,
+>
 {
   db: GenericDatabaseWriter<DataModel>;
   system: GenericDatabaseWriter<DataModel>["system"];
-  btree: AttachBTree<DataModel, T>;
+  btree: AttachBTree<DataModel, T, K>;
 
   constructor(
     db: GenericDatabaseWriter<DataModel>,
-    btree: AttachBTree<DataModel, T>,
+    btree: AttachBTree<DataModel, T, K>,
   ) {
     this.db = db;
     this.system = db.system;
