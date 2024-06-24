@@ -9,7 +9,7 @@ allows some common operations to be done easily.
 See the `class BTree` methods for operations you can do.
 
 1. Get an item at an offset with `.at(i)`, e.g. jump to the 5000th image in your photo album.
-2. Get the offset of an item with `indexOf(k)`, e.g. if each player has a score, determine that a specific player ranked 4245th.
+2. Get the offset of an item with `indexOf(k)`, e.g. if each player has a score, determine that a specific player is ranked 4245th in the leaderboard.
 3. Count documents in the table.
 4. Count documents between some range of keys in the table.
 5. Get the max or min or documents in the table.
