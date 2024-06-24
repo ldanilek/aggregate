@@ -16,8 +16,8 @@ import type {
 } from "convex/server";
 import type * as btree_btree from "../btree/btree.js";
 import type * as btree_compare from "../btree/compare.js";
+import type * as btree_withBTree from "../btree/withBTree.js";
 import type * as myFunctions from "../myFunctions.js";
-import type * as withBTree from "../withBTree.js";
 
 /**
  * A utility for referencing Convex functions in your app's API.
@@ -30,8 +30,8 @@ import type * as withBTree from "../withBTree.js";
 declare const fullApi: ApiFromModules<{
   "btree/btree": typeof btree_btree;
   "btree/compare": typeof btree_compare;
+  "btree/withBTree": typeof btree_withBTree;
   myFunctions: typeof myFunctions;
-  withBTree: typeof withBTree;
 }>;
 export declare const api: FilterApi<
   typeof fullApi,

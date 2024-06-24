@@ -1,4 +1,4 @@
-import { DatabaseReader } from "./_generated/server";
+import { DatabaseReader } from "../_generated/server";
 import {
   DocumentByName,
   GenericDataModel,
@@ -15,7 +15,7 @@ import {
   getHandler,
   insertHandler,
   rankHandler,
-} from "./btree/btree";
+} from "./btree";
 import { GenericId } from "convex/values";
 
 export function queryWithBTree<
