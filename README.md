@@ -35,3 +35,9 @@ for await (const doc of ctx.db.query("numbers")) {
 ```
 
 Note that modifying the table in the dashboard will not update the BTree. To keep the BTree in sync with the table, you must use the custom mutations from step 3.
+
+## Feedback
+
+This library is a work-in-progress.
+
+Feel free to leave issues on Github or ask about the library in Convex's Discord.
