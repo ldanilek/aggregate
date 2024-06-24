@@ -1,28 +1,65 @@
-
-import { customMutation } from "convex-helpers/server/customFunctions";
-import { DatabaseReader, mutation } from "./_generated/server";
-import { DocumentByName, GenericDataModel, GenericDatabaseWriter, QueryInitializer, TableNamesInDataModel } from "convex/server";
-import { Key, atIndexHandler, countBetweenHandler, countHandler, deleteHandler, getHandler, insertHandler, rankHandler } from "./btree";
+import {
+  customMutation,
+  customQuery,
+} from "convex-helpers/server/customFunctions";
+import { DatabaseReader, mutation, query } from "./_generated/server";
+import {
+  DocumentByName,
+  GenericDataModel,
+  GenericDatabaseWriter,
+  QueryInitializer,
+  TableNamesInDataModel,
+} from "convex/server";
+import {
+  Key,
+  atIndexHandler,
+  countBetweenHandler,
+  countHandler,
+  deleteHandler,
+  getHandler,
+  insertHandler,
+  rankHandler,
+} from "./btree";
 import { GenericId } from "convex/values";
 
-export type AttachBTree<DataModel extends GenericDataModel, T extends TableNamesInDataModel<DataModel>, K extends Key> = {
+export type AttachBTree<
+  DataModel extends GenericDataModel,
+  T extends TableNamesInDataModel<DataModel>,
+  K extends Key,
+  Name extends string,
+> = {
   tableName: T;
-  btreeName: string;
+  btreeName: Name;
   getKey: (doc: DocumentByName<DataModel, T>) => K;
 };
+
+export function queryWithBTree<
+  DataModel extends GenericDataModel,
+  T extends TableNamesInDataModel<DataModel>,
+  K extends Key,
+  Name extends string,
+>(btree: AttachBTree<DataModel, T, K, Name>) {
+  return customQuery(query, {
+    args: {},
+    input: async (ctx, _args) => {
+      const tree = new BTree<DataModel, T, K>(ctx, btree.btreeName);
+      return { ctx: { [btree.btreeName]: tree } as Record<Name, typeof tree>, args: {} };
+    },
+  });
+}
 
 export function mutationWithBTree<
   DataModel extends GenericDataModel,
   T extends TableNamesInDataModel<DataModel>,
   K extends Key,
->(
-  btree: AttachBTree<DataModel, T, K>,
-) {
+  Name extends string,
+>(btree: AttachBTree<DataModel, T, K, Name>) {
   return customMutation(mutation, {
     args: {},
     input: async (ctx, _args) => {
       const db = new WrapWriter(ctx.db, btree);
-      return { ctx: { db }, args: {} };
+      const tree = new BTree<DataModel, T, K>(ctx, btree.btreeName);
+      return { ctx: { db, [btree.btreeName]: tree } as ({ db: typeof db } & Record<Name, typeof tree>), args: {} };
     },
   });
 }
@@ -70,27 +107,26 @@ export class BTree<
     }
     return await this.at(count - 1);
   }
+  // Count keys strictly between k1 and k2.
   async countBetween(k1: K, k2: K): Promise<number> {
     return await countBetweenHandler(this.ctx, { name: this.name, k1, k2 });
   }
+  // TODO: iter between
 }
-// TODO: count between
-// TODO: iter between
-
 
 class WrapWriter<
   DataModel extends GenericDataModel,
   T extends TableNamesInDataModel<DataModel>,
   K extends Key,
->
-{
+  Name extends string,
+> {
   db: GenericDatabaseWriter<DataModel>;
   system: GenericDatabaseWriter<DataModel>["system"];
-  btree: AttachBTree<DataModel, T, K>;
+  btree: AttachBTree<DataModel, T, K, Name>;
 
   constructor(
     db: GenericDatabaseWriter<DataModel>,
-    btree: AttachBTree<DataModel, T, K>,
+    btree: AttachBTree<DataModel, T, K, Name>
   ) {
     this.db = db;
     this.system = db.system;
@@ -107,12 +143,15 @@ class WrapWriter<
     value: any
   ): Promise<any> {
     const id = await this.db.insert(table, value);
-    if (table === this.btree.tableName as any) {
-      await insertHandler({ db: this.db }, {
-        name: this.btree.btreeName,
-        key: this.btree.getKey(value),
-        value: id,
-      });
+    if (table === (this.btree.tableName as any)) {
+      await insertHandler(
+        { db: this.db },
+        {
+          name: this.btree.btreeName,
+          key: this.btree.getKey(value),
+          value: id,
+        }
+      );
     }
     return id;
   }
@@ -121,21 +160,27 @@ class WrapWriter<
     id: GenericId<TableName>,
     value: Partial<any>
   ): Promise<void> {
-    if (tableName === this.btree.tableName as any) {
+    if (tableName === (this.btree.tableName as any)) {
       const keyBefore = this.btree.getKey((await this.db.get(id))!);
-      await deleteHandler({ db: this.db }, {
-        name: this.btree.btreeName,
-        key: keyBefore,
-      });
+      await deleteHandler(
+        { db: this.db },
+        {
+          name: this.btree.btreeName,
+          key: keyBefore,
+        }
+      );
     }
     await this.db.patch(id, value);
-    if (tableName === this.btree.tableName as any) {
+    if (tableName === (this.btree.tableName as any)) {
       const keyAfter = this.btree.getKey((await this.db.get(id))!);
-      await insertHandler({ db: this.db }, {
-        name: this.btree.btreeName,
-        key: keyAfter,
-        value: id,
-      });
+      await insertHandler(
+        { db: this.db },
+        {
+          name: this.btree.btreeName,
+          key: keyAfter,
+          value: id,
+        }
+      );
     }
   }
   async replace<TableName extends string>(
@@ -143,30 +188,39 @@ class WrapWriter<
     id: GenericId<TableName>,
     value: any
   ): Promise<void> {
-    if (tableName === this.btree.tableName as any) {
+    if (tableName === (this.btree.tableName as any)) {
       const keyBefore = this.btree.getKey((await this.db.get(id))!);
-      await deleteHandler({ db: this.db }, {
-        name: this.btree.btreeName,
-        key: keyBefore,
-      });
+      await deleteHandler(
+        { db: this.db },
+        {
+          name: this.btree.btreeName,
+          key: keyBefore,
+        }
+      );
     }
     await this.db.replace(id, value);
-    if (tableName === this.btree.tableName as any) {
+    if (tableName === (this.btree.tableName as any)) {
       const keyAfter = this.btree.getKey((await this.db.get(id))!);
-      await insertHandler({ db: this.db }, {
-        name: this.btree.btreeName,
-        key: keyAfter,
-        value: id,
-      });
+      await insertHandler(
+        { db: this.db },
+        {
+          name: this.btree.btreeName,
+          key: keyAfter,
+          value: id,
+        }
+      );
     }
   }
   async delete(tableName: any, id: GenericId<string>): Promise<void> {
-    if (tableName === this.btree.tableName as any) {
+    if (tableName === (this.btree.tableName as any)) {
       const keyBefore = this.btree.getKey((await this.db.get(id))!);
-      await deleteHandler({ db: this.db }, {
-        name: this.btree.btreeName,
-        key: keyBefore,
-      });
+      await deleteHandler(
+        { db: this.db },
+        {
+          name: this.btree.btreeName,
+          key: keyBefore,
+        }
+      );
     }
     return await this.db.delete(id);
   }

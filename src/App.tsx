@@ -6,7 +6,7 @@ import { useState } from "react";
 
 function App() {
   const numbers = useQuery(api.myFunctions.listNumbers, { count: 10 });
-  const numberCount = useQuery(api.myFunctions.countNumbers) ?? 0;
+  const numberCount = useQuery(api.myFunctions.countNumbers, {}) ?? 0;
   const addNumber = useMutation(api.myFunctions.addNumber);
   const [randomIndex, setRandomIndex] = useState(Math.floor(Math.random() * numberCount));
 
