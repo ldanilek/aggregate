@@ -157,4 +157,27 @@ describe("btree", () => {
       await countBetween(6, 9, 2);
     });
   });
+
+  test("delete nonexistent key no-ops", async () => {
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      async function insert(key: number, value: string) {
+        await deleteHandler(ctx, { name: "foo", key });
+        await validateTree(ctx, { name: "foo" });
+        await insertHandler(ctx, { name: "foo", key, value });
+        await validateTree(ctx, { name: "foo" });
+        const get = await getHandler(ctx, { name: "foo", key });
+        expect(get).toEqual({
+          key,
+          value,
+        });
+      }
+      await insert(62, "a");
+      await insert(45, "b");
+      await insert(61, "c");
+      await insert(46, "d");
+      await insert(5, "e");
+      await insert(67, "e");
+    });
+  });
 });

@@ -15,6 +15,7 @@ import {
   getHandler,
   insertHandler,
   rankHandler,
+  validateTree,
 } from "./btree";
 import { GenericId } from "convex/values";
 
@@ -110,6 +111,9 @@ export class BTree<
     }
     const index = Math.floor(Math.random() * count);
     return await this.at(index);
+  }
+  async validate(): Promise<void> {
+    await validateTree(this.ctx, { name: this.name });
   }
   // TODO: iter between keys
 }

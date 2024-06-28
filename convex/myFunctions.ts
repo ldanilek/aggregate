@@ -92,6 +92,15 @@ export const backfillBTree = mutationWithNumbers({
   handler: async (ctx) => {
     for await (const doc of ctx.db.query("numbers")) {
       await ctx.db.patch("numbers", doc._id, {});
+      console.log("backfilled", doc.value);
+      await ctx.tree.validate();
     }
+  },
+});
+
+export const validateBTree = queryWithNumbers({
+  args: {},
+  handler: async (ctx) => {
+    await ctx.tree.validate();
   },
 });

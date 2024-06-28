@@ -8,7 +8,7 @@ import {
 import { Doc, Id } from "../_generated/dataModel";
 import { compareValues } from "./compare";
 
-const BTREE_DEBUG = process.env.BTREE_DEBUG === "true";
+const BTREE_DEBUG = false;
 
 export type Key = ConvexValue;
 export type Value = ConvexValue;
@@ -19,7 +19,7 @@ function p(v: ConvexValue): string {
 
 function log(s: string) {
   if (BTREE_DEBUG) {
-    log(s);
+    console.log(s);
   }
 }
 
@@ -383,7 +383,7 @@ async function deleteFromNode(
   db: DatabaseWriter,
   node: Id<"btreeNode">,
   key: Key
-) {
+): Promise<boolean> {
   let n = (await db.get(node))!;
   let i = 0;
   for (; i < n.keys.length; i++) {
@@ -402,7 +402,7 @@ async function deleteFromNode(
           values: [...n.values.slice(0, i), ...n.values.slice(i + 1)],
           count: n.count - 1,
         });
-        return;
+        return true;
       }
       // if this is an internal node, replace the key with the predecessor
       const predecessor = await negativeIndexInNode(db, n.subtrees[i], 0);
@@ -426,9 +426,12 @@ async function deleteFromNode(
     log(`key ${p(key)} not found in node ${n._id}`);
     // TODO: consider throwing.
     // For now we don't throw to support patching to backfill.
-    return;
+    return false;
   }
-  await deleteFromNode(db, n.subtrees[i], key);
+  const deleted = await deleteFromNode(db, n.subtrees[i], key);
+  if (!deleted) {
+    return false;
+  }
   await db.patch(node, {
     count: n.count - 1,
   });
@@ -476,7 +479,7 @@ async function deleteFromNode(
             ...n.values.slice(i),
           ],
         });
-        return;
+        return true;
       }
     }
     if (i < n.subtrees.length - 1) {
@@ -515,7 +518,7 @@ async function deleteFromNode(
             ...n.values.slice(i + 1),
           ],
         });
-        return;
+        return true;
       }
     }
     // If we can't rotate, we need to merge
@@ -529,6 +532,7 @@ async function deleteFromNode(
       await mergeNodes(db, n, i);
     }
   }
+  return true;
 }
 
 async function mergeNodes(

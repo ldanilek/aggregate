@@ -46,7 +46,7 @@ function App() {
         {numbersByIndex}
       </div>
       }
-      <p>Let's look up a random index! <button onClick={() => {
+      <p>There are {numberCount} numbers. Let's look up a random index! <button onClick={() => {
         setRandomIndex(Math.floor(Math.random() * numberCount));
       }}>reroll</button></p>
       <div>{
