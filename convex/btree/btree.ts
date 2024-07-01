@@ -25,16 +25,24 @@ function log(s: string) {
 
 export async function insertHandler(
   ctx: { db: DatabaseWriter },
-  args: { name: string; key: Key; value: Value }
+  args: { name: string; key: Key; value: Value, sum?: number }
 ) {
   const tree = await getOrCreateTree(ctx.db, args.name);
-  const pushUp = await insertIntoNode(ctx.db, tree.root, args.key, args.value);
+  const sum = args.sum ?? 0;
+  const pushUp = await insertIntoNode(
+    ctx.db,
+    tree.root,
+    args.key,
+    args.value,
+    sum,
+  );
   if (pushUp) {
     const newRoot = await ctx.db.insert("btreeNode", {
       keys: [pushUp.key],
       values: [pushUp.value],
       subtrees: [pushUp.leftSubtree, pushUp.rightSubtree],
       count: pushUp.leftSubtreeCount + pushUp.rightSubtreeCount + 1,
+      sum: pushUp.leftSubtreeSum + pushUp.rightSubtreeSum + sum,
     });
     await ctx.db.patch(tree._id, {
       root: newRoot,
@@ -47,6 +55,7 @@ export const insert = internalMutation({
     name: v.string(),
     key: v.any(),
     value: v.any(),
+    sum: v.number(),
   },
   handler: insertHandler,
 });
@@ -617,6 +626,15 @@ async function subtreeCounts(db: DatabaseReader, node: Doc<"btreeNode">) {
   );
 }
 
+async function subtreeSums(db: DatabaseReader, node: Doc<"btreeNode">) {
+  return await Promise.all(
+    node.subtrees.map(async (subtree) => {
+      const s = (await db.get(subtree))!;
+      return s.sum;
+    })
+  );
+}
+
 function sum(nums: number[]) {
   return nums.reduce((acc, n) => acc + n, 0);
 }
@@ -626,6 +644,8 @@ type PushUp = {
   rightSubtree: Id<"btreeNode">;
   leftSubtreeCount: number;
   rightSubtreeCount: number;
+  leftSubtreeSum: number;
+  rightSubtreeSum: number;
   key: Key;
   value: Value;
 };
@@ -637,7 +657,8 @@ async function insertIntoNode(
   db: DatabaseWriter,
   node: Id<"btreeNode">,
   key: Key,
-  value: Value
+  value: Value,
+  toSum: number,
 ): Promise<PushUp | null> {
   const n = (await db.get(node))!;
   let i = 0;
@@ -654,7 +675,7 @@ async function insertIntoNode(
   // insert key before index i
   if (n.subtrees.length > 0) {
     // insert into subtree
-    const pushUp = await insertIntoNode(db, n.subtrees[i], key, value);
+    const pushUp = await insertIntoNode(db, n.subtrees[i], key, value, toSum);
     if (pushUp) {
       await db.patch(node, {
         keys: [...n.keys.slice(0, i), pushUp.key, ...n.keys.slice(i)],
@@ -675,6 +696,7 @@ async function insertIntoNode(
   }
   await db.patch(node, {
     count: n.count + 1,
+    sum: n.sum + toSum,
   });
 
   const newN = (await db.get(node))!;
@@ -713,6 +735,7 @@ async function insertIntoNode(
         ? newN.subtrees.slice(MIN_NODE_SIZE + 1)
         : [],
       count: rightCount,
+      sum: 
     });
     return {
       key: newN.keys[MIN_NODE_SIZE],

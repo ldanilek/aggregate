@@ -18,5 +18,6 @@ export default defineSchema({
     values: v.array(v.any()),
     subtrees: v.array(v.id("btreeNode")),
     count: v.number(),
+    sum: v.number(),
   }),
 });
