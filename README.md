@@ -17,6 +17,11 @@ See the `class BTree` methods for operations you can do.
 
 ## How to use
 
+This library uses Convex's internal Components framework, so it cannot be used
+yet by outside projects.
+
+Old installation instructions:
+
 NOTE: once Convex ships the upcoming "components" project, installation
 will hopefully become simpler.
 

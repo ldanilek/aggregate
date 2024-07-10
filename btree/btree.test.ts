@@ -9,6 +9,7 @@ import {
   getHandler,
   insertHandler,
   rankHandler,
+  sumHandler,
   validateTree,
 } from "./btree";
 
@@ -185,6 +186,39 @@ describe("btree", () => {
       await insert(46, "d");
       await insert(5, "e");
       await insert(67, "e");
+    });
+  });
+
+  test("sums", async () => {
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      async function insert(key: number, value: string, summand: number) {
+        const sumBefore = await sumHandler(ctx, { name: "foo" });
+        await insertHandler(ctx, { name: "foo", key, value, summand });
+        await validateTree(ctx, { name: "foo" });
+        const sumAfter = await sumHandler(ctx, { name: "foo" });
+        expect(sumAfter).toEqual(sumBefore + summand);
+      }
+      async function del(key: number) {
+        const sumBefore = await sumHandler(ctx, { name: "foo" });
+        const itemBefore = await getHandler(ctx, { name: "foo", key });
+        expect(itemBefore).not.toBeNull();
+        await deleteHandler(ctx, { name: "foo", key });
+        await validateTree(ctx, { name: "foo" });
+        const sumAfter = await sumHandler(ctx, { name: "foo" });
+        expect(sumAfter).toEqual(sumBefore - itemBefore!.s);
+      }
+      await insert(1, "a", 1);
+      await insert(4, "b", 2);
+      await insert(3, "c", 3);
+      await insert(2, "d", 4);
+      await insert(5, "e", 5);
+      await insert(6, "e", 6);
+      await del(3);
+      await del(2);
+      await del(1);
+      await del(5);
+      await del(4);
     });
   });
 });

@@ -232,6 +232,7 @@ export declare const app: {
         any
       >;
       sum: FunctionReference<"query", "internal", { name: string }, any>;
+      sumHandler: FunctionReference<"query", "internal", { name: string }, any>;
       validate: FunctionReference<"query", "internal", { name: string }, any>;
       validateTree: FunctionReference<
         "query",

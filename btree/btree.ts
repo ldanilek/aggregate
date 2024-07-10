@@ -228,7 +228,7 @@ export const sum = query({
   handler: sumHandler,
 });
 
-async function sumHandler(
+export async function sumHandler(
   ctx: { db: DatabaseReader },
   args: { name: string }
 ) {
