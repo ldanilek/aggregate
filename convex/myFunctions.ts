@@ -1,10 +1,11 @@
 import { v } from "convex/values";
-import { mutationWithBTree, queryWithBTree } from "./btree/withBTree";
+import { mutationWithBTree, queryWithBTree } from "../btree/withBTree";
 import {
   customMutation,
   customQuery,
 } from "convex-helpers/server/customFunctions";
-import { mutation, query } from "./_generated/server";
+import { mutation, query, app } from "./_generated/server";
+import { DataModel } from "./_generated/dataModel";
 
 const mutationWithNumbers = customMutation(
   mutation,
@@ -12,15 +13,17 @@ const mutationWithNumbers = customMutation(
     tableName: "numbers",
     btreeName: "numbers",
     getKey: (doc) => doc.value,
+    getSummand: (doc) => doc.value,
   })
 );
 
 const queryWithNumbers = customQuery(
   query,
-  queryWithBTree({
+  queryWithBTree<DataModel, "numbers", number, "numbers">({
     tableName: "numbers",
     btreeName: "numbers",
     getKey: (doc) => doc.value,
+    getSummand: (doc) => doc.value,
   })
 );
 
@@ -37,7 +40,7 @@ export const listNumbers = queryWithNumbers({
       // Ordered by _creationTime, return most recent
       .order("desc")
       .take(args.count);
-    return numbers.toReversed().map((number) => number.value);
+    return numbers.reverse().map((number) => number.value);
   },
 });
 
@@ -87,9 +90,18 @@ export const countNumbers = queryWithNumbers({
   },
 });
 
+export const sumNumbers = queryWithNumbers({
+  handler: async (ctx) => {
+    return await ctx.tree.sum();
+  },
+});
+
 export const backfillBTree = mutationWithNumbers({
   args: {},
   handler: async (ctx) => {
+    // @ts-ignore
+    await ctx.runMutation(app.btree.btree.clearTree, { name: "numbers" });
+
     for await (const doc of ctx.db.query("numbers")) {
       await ctx.db.patch("numbers", doc._id, {});
       console.log("backfilled", doc.value);

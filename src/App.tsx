@@ -7,6 +7,7 @@ import { useState } from "react";
 function App() {
   const numbers = useQuery(api.myFunctions.listNumbers, { count: 10 });
   const numberCount = useQuery(api.myFunctions.countNumbers, {}) ?? 0;
+  const numberSum = useQuery(api.myFunctions.sumNumbers, {}) ?? 0;
   const addNumber = useMutation(api.myFunctions.addNumber);
   const [randomIndex, setRandomIndex] = useState(Math.floor(Math.random() * numberCount));
 
@@ -46,7 +47,8 @@ function App() {
         {numbersByIndex}
       </div>
       }
-      <p>There are {numberCount} numbers. Let's look up a random index! <button onClick={() => {
+      <p>There are {numberCount} numbers adding up to {numberSum}.</p>
+      <p>Let's look up a random index! <button onClick={() => {
         setRandomIndex(Math.floor(Math.random() * numberCount));
       }}>reroll</button></p>
       <div>{
@@ -63,8 +65,8 @@ function NumberByIndex({i}: {i: number}) {
   if (!n) return <p>Loading...</p>;
 
   return <p>
-    Number at index {i} is {n.key?.toString()}. <button onClick={() => {
-      void removeNumber({ number: n.value as Id<"numbers"> });
+    Number at index {i} is {n.k?.toString()}. <button onClick={() => {
+      void removeNumber({ number: n.v as Id<"numbers"> });
     }}>delete</button>
   </p>
 }

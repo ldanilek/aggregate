@@ -19,6 +19,6 @@
     "isolatedModules": true,
     "noEmit": true
   },
-  "include": ["./**/*"],
+  "include": ["./**/*", "../btree/setup.test.ts"],
   "exclude": ["./_generated"]
 }

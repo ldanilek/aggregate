@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { convexTest } from "convex-test";
-import schema from "../schema";
-import { modules } from "../setup.test";
+import schema from "./schema";
+import { modules } from "./setup.test";
 import {
   atIndexHandler,
   countBetweenHandler,
@@ -22,8 +22,9 @@ describe("btree", () => {
         await validateTree(ctx, { name: "foo" });
         const get = await getHandler(ctx, { name: "foo", key });
         expect(get).toEqual({
-          key,
-          value,
+          k: key,
+          v: value,
+          s: 0,
         });
       }
       await insert(1, "a");
@@ -49,8 +50,9 @@ describe("btree", () => {
         await validateTree(ctx, { name: "foo" });
         const get = await getHandler(ctx, { name: "foo", key });
         expect(get).toEqual({
-          key,
-          value,
+          k: key,
+          v: value,
+          s: 0,
         });
       }
       // Delete keys. At each stage, the tree is valid.
@@ -97,15 +99,16 @@ describe("btree", () => {
           index: rank!,
         });
         expect(atIndex).toEqual({
-          key,
-          value,
+          k: key,
+          v: value,
+          s: 0,
         });
       }
       async function checkRank(key: number, rank: number) {
         const r = await rankHandler(ctx, { name: "foo", key });
         expect(r).toEqual(rank);
         const atIndex = await atIndexHandler(ctx, { name: "foo", index: rank });
-        expect(atIndex.key).toEqual(key);
+        expect(atIndex.k).toEqual(key);
       }
       await insert(1, "a");
       await insert(4, "b");
@@ -138,7 +141,10 @@ describe("btree", () => {
         count: number
       ) {
         const c = await countBetweenHandler(ctx, { name: "foo", k1, k2 });
-        expect(c).toEqual(count);
+        expect(c).toEqual({
+          count,
+          sum: 0,
+        });
       }
       await insert(0, "a");
       await insert(1, "a");
@@ -168,8 +174,9 @@ describe("btree", () => {
         await validateTree(ctx, { name: "foo" });
         const get = await getHandler(ctx, { name: "foo", key });
         expect(get).toEqual({
-          key,
-          value,
+          k: key,
+          v: value,
+          s: 0,
         });
       }
       await insert(62, "a");

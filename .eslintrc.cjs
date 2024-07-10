@@ -37,7 +37,7 @@ module.exports = {
     ],
 
     // Allow escaping the compiler
-    "@typescript-eslint/ban-ts-comment": "error",
+    "@typescript-eslint/ban-ts-comment": "off",
 
     // Allow explicit `any`s
     "@typescript-eslint/no-explicit-any": "off",
