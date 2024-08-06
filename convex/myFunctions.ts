@@ -8,8 +8,8 @@ import { mutation, query, app } from "./_generated/server";
 import { DataModel } from "./_generated/dataModel";
 
 const mutationWithNumbers = customMutation(
-  mutation,
-  mutationWithBTree({
+  mutation as any,
+  mutationWithBTree<DataModel, "numbers", number, "numbers">({
     tableName: "numbers",
     btreeName: "numbers",
     getKey: (doc) => doc.value,
@@ -18,7 +18,7 @@ const mutationWithNumbers = customMutation(
 );
 
 const queryWithNumbers = customQuery(
-  query,
+  query as any,
   queryWithBTree<DataModel, "numbers", number, "numbers">({
     tableName: "numbers",
     btreeName: "numbers",
