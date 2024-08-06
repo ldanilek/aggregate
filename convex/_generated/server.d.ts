@@ -149,102 +149,63 @@ export type DatabaseReader = GenericDatabaseReader<DataModel>;
 export type DatabaseWriter = GenericDatabaseWriter<DataModel>;
 
 export declare const app: {
-  btree: {
+  numbersBTree: {
     btree: {
-      atIndex: FunctionReference<
-        "query",
-        "internal",
-        { index: number; name: string },
-        any
-      >;
+      atIndex: FunctionReference<"query", "internal", { index: number }, any>;
       atIndexHandler: FunctionReference<
         "query",
         "internal",
-        { index: number; name: string },
+        { index: number },
         any
       >;
-      clearTree: FunctionReference<
-        "mutation",
-        "internal",
-        { name: string },
-        any
-      >;
-      count: FunctionReference<"query", "internal", { name: string }, any>;
+      clearTree: FunctionReference<"mutation", "internal", {}, any>;
+      count: FunctionReference<"query", "internal", {}, any>;
       countBetween: FunctionReference<
         "query",
         "internal",
-        { k1?: any; k2?: any; name: string },
+        { k1?: any; k2?: any },
         any
       >;
       countBetweenHandler: FunctionReference<
         "query",
         "internal",
-        { k1?: any; k2?: any; name: string },
+        { k1?: any; k2?: any },
         any
       >;
-      countHandler: FunctionReference<
-        "query",
-        "internal",
-        { name: string },
-        any
-      >;
+      countHandler: FunctionReference<"query", "internal", {}, any>;
       deleteHandler: FunctionReference<
         "mutation",
         "internal",
-        { key: any; name: string },
+        { key: any },
         any
       >;
-      deleteKey: FunctionReference<
-        "mutation",
-        "internal",
-        { key: any; name: string },
-        any
-      >;
-      get: FunctionReference<
-        "query",
-        "internal",
-        { key: any; name: string },
-        any
-      >;
-      getHandler: FunctionReference<
-        "query",
-        "internal",
-        { key: any; name: string },
-        any
-      >;
+      deleteKey: FunctionReference<"mutation", "internal", { key: any }, any>;
+      get: FunctionReference<"query", "internal", { key: any }, any>;
+      getHandler: FunctionReference<"query", "internal", { key: any }, any>;
       insert: FunctionReference<
         "mutation",
         "internal",
-        { key: any; name: string; summand?: number; value: any },
+        { key: any; summand?: number; value: any },
         any
       >;
       insertHandler: FunctionReference<
         "mutation",
         "internal",
-        { key: any; name: string; summand?: number; value: any },
+        { key: any; summand?: number; value: any },
         any
       >;
-      rank: FunctionReference<
-        "query",
+      modifyKey: FunctionReference<
+        "mutation",
         "internal",
-        { key: any; name: string },
+        { keyAfter: any; keyBefore: any; summand?: number; value: any },
         any
       >;
-      rankHandler: FunctionReference<
-        "query",
-        "internal",
-        { key: any; name: string },
-        any
-      >;
-      sum: FunctionReference<"query", "internal", { name: string }, any>;
-      sumHandler: FunctionReference<"query", "internal", { name: string }, any>;
-      validate: FunctionReference<"query", "internal", { name: string }, any>;
-      validateTree: FunctionReference<
-        "query",
-        "internal",
-        { name: string },
-        any
-      >;
+      rank: FunctionReference<"query", "internal", { key: any }, any>;
+      rankHandler: FunctionReference<"query", "internal", { key: any }, any>;
+      sum: FunctionReference<"query", "internal", {}, any>;
+      sumHandler: FunctionReference<"query", "internal", {}, any>;
+      validate: FunctionReference<"query", "internal", {}, any>;
+      validateTree: FunctionReference<"query", "internal", {}, any>;
     };
   };
 };

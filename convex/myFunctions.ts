@@ -1,36 +1,32 @@
 import { v } from "convex/values";
-import { mutationWithBTree, queryWithBTree } from "../btree/withBTree";
+import { BTree, mutationWithBTree } from "../btree/withBTree";
 import {
   customMutation,
-  customQuery,
 } from "convex-helpers/server/customFunctions";
-import { mutation, query, app } from "./_generated/server";
+import { mutation, query, app, QueryCtx } from "./_generated/server";
 import { DataModel } from "./_generated/dataModel";
 
 const mutationWithNumbers = customMutation(
   mutation as any,
-  mutationWithBTree<DataModel, "numbers", number, "numbers">({
+  mutationWithBTree<DataModel, "numbers", number>({
     tableName: "numbers",
-    btreeName: "numbers",
+    api: app.numbersBTree,
     getKey: (doc) => doc.value,
     getSummand: (doc) => doc.value,
   })
 );
 
-const queryWithNumbers = customQuery(
-  query as any,
-  queryWithBTree<DataModel, "numbers", number, "numbers">({
-    tableName: "numbers",
-    btreeName: "numbers",
-    getKey: (doc) => doc.value,
-    getSummand: (doc) => doc.value,
-  })
-);
+function numbersBTree(ctx: QueryCtx) {
+  return new BTree<DataModel, "numbers", number>(
+    ctx,
+    app.numbersBTree
+  );
+}
 
 // Write your Convex functions in any file inside this directory (`convex`).
 // See https://docs.convex.dev/functions for more.
 
-export const listNumbers = queryWithNumbers({
+export const listNumbers = query({
   args: {
     count: v.number(),
   },
@@ -57,7 +53,8 @@ export const addNumber = mutationWithNumbers({
     //// Mutations can also read from the database like queries.
     //// See https://docs.convex.dev/database/writing-data.
 
-    const exists = (await ctx.tree.get(args.value)) !== null;
+    const tree = numbersBTree(ctx);
+    const exists = (await tree.get(args.value)) !== null;
     if (exists) {
       console.log("skipped adding duplicate", args.value);
     }
@@ -77,42 +74,41 @@ export const removeNumber = mutationWithNumbers({
   },
 });
 
-export const numberAtIndex = queryWithNumbers({
+export const numberAtIndex = query({
   args: { index: v.number() },
   handler: async (ctx, args) => {
-    return ctx.tree.at(args.index);
+    return numbersBTree(ctx).at(args.index);
   },
 });
 
-export const countNumbers = queryWithNumbers({
+export const countNumbers = query({
   handler: async (ctx) => {
-    return await ctx.tree.count();
+    return await numbersBTree(ctx).count();
   },
 });
 
-export const sumNumbers = queryWithNumbers({
+export const sumNumbers = query({
   handler: async (ctx) => {
-    return await ctx.tree.sum();
+    return await numbersBTree(ctx).sum();
   },
 });
 
 export const backfillBTree = mutationWithNumbers({
   args: {},
   handler: async (ctx) => {
-    // @ts-ignore
-    await ctx.runMutation(app.btree.btree.clearTree, { name: "numbers" });
+    await ctx.runMutation(app.numbersBTree.btree.clearTree, { });
 
     for await (const doc of ctx.db.query("numbers")) {
       await ctx.db.patch("numbers", doc._id, {});
       console.log("backfilled", doc.value);
-      await ctx.tree.validate();
+      await numbersBTree(ctx).validate();
     }
   },
 });
 
-export const validateBTree = queryWithNumbers({
+export const validateBTree = query({
   args: {},
   handler: async (ctx) => {
-    await ctx.tree.validate();
+    await numbersBTree(ctx).validate();
   },
 });

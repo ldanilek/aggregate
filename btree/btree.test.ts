@@ -19,9 +19,9 @@ describe("btree", () => {
     await t.run(async (ctx) => {
       // Insert lots of keys. At each stage, the tree is valid.
       async function insert(key: number, value: string) {
-        await insertHandler(ctx, { name: "foo", key, value });
-        await validateTree(ctx, { name: "foo" });
-        const get = await getHandler(ctx, { name: "foo", key });
+        await insertHandler(ctx, { key, value });
+        await validateTree(ctx);
+        const get = await getHandler(ctx, { key });
         expect(get).toEqual({
           k: key,
           v: value,
@@ -47,9 +47,9 @@ describe("btree", () => {
     const t = convexTest(schema, modules);
     await t.run(async (ctx) => {
       async function insert(key: number, value: string) {
-        await insertHandler(ctx, { name: "foo", key, value });
-        await validateTree(ctx, { name: "foo" });
-        const get = await getHandler(ctx, { name: "foo", key });
+        await insertHandler(ctx, { key, value });
+        await validateTree(ctx);
+        const get = await getHandler(ctx, { key });
         expect(get).toEqual({
           k: key,
           v: value,
@@ -58,9 +58,9 @@ describe("btree", () => {
       }
       // Delete keys. At each stage, the tree is valid.
       async function del(key: number) {
-        await deleteHandler(ctx, { name: "foo", key });
-        await validateTree(ctx, { name: "foo" });
-        const get = await getHandler(ctx, { name: "foo", key });
+        await deleteHandler(ctx, { key });
+        await validateTree(ctx);
+        const get = await getHandler(ctx, { key });
         expect(get).toBeNull();
       }
       await insert(1, "a");
@@ -91,12 +91,11 @@ describe("btree", () => {
     const t = convexTest(schema, modules);
     await t.run(async (ctx) => {
       async function insert(key: number, value: string) {
-        await insertHandler(ctx, { name: "foo", key, value });
-        await validateTree(ctx, { name: "foo" });
-        const rank = await rankHandler(ctx, { name: "foo", key });
+        await insertHandler(ctx, { key, value });
+        await validateTree(ctx);
+        const rank = await rankHandler(ctx, { key });
         expect(rank).not.toBeNull();
         const atIndex = await atIndexHandler(ctx, {
-          name: "foo",
           index: rank!,
         });
         expect(atIndex).toEqual({
@@ -106,9 +105,9 @@ describe("btree", () => {
         });
       }
       async function checkRank(key: number, rank: number) {
-        const r = await rankHandler(ctx, { name: "foo", key });
+        const r = await rankHandler(ctx, { key });
         expect(r).toEqual(rank);
-        const atIndex = await atIndexHandler(ctx, { name: "foo", index: rank });
+        const atIndex = await atIndexHandler(ctx, { index: rank });
         expect(atIndex.k).toEqual(key);
       }
       await insert(1, "a");
@@ -133,15 +132,15 @@ describe("btree", () => {
     const t = convexTest(schema, modules);
     await t.run(async (ctx) => {
       async function insert(key: number, value: string) {
-        await insertHandler(ctx, { name: "foo", key, value });
-        await validateTree(ctx, { name: "foo" });
+        await insertHandler(ctx, { key, value });
+        await validateTree(ctx);
       }
       async function countBetween(
         k1: number | undefined,
         k2: number | undefined,
         count: number
       ) {
-        const c = await countBetweenHandler(ctx, { name: "foo", k1, k2 });
+        const c = await countBetweenHandler(ctx, { k1, k2 });
         expect(c).toEqual({
           count,
           sum: 0,
@@ -169,11 +168,11 @@ describe("btree", () => {
     const t = convexTest(schema, modules);
     await t.run(async (ctx) => {
       async function insert(key: number, value: string) {
-        await deleteHandler(ctx, { name: "foo", key });
-        await validateTree(ctx, { name: "foo" });
-        await insertHandler(ctx, { name: "foo", key, value });
-        await validateTree(ctx, { name: "foo" });
-        const get = await getHandler(ctx, { name: "foo", key });
+        await deleteHandler(ctx, { key });
+        await validateTree(ctx);
+        await insertHandler(ctx, { key, value });
+        await validateTree(ctx);
+        const get = await getHandler(ctx, { key });
         expect(get).toEqual({
           k: key,
           v: value,
@@ -193,19 +192,19 @@ describe("btree", () => {
     const t = convexTest(schema, modules);
     await t.run(async (ctx) => {
       async function insert(key: number, value: string, summand: number) {
-        const sumBefore = await sumHandler(ctx, { name: "foo" });
-        await insertHandler(ctx, { name: "foo", key, value, summand });
-        await validateTree(ctx, { name: "foo" });
-        const sumAfter = await sumHandler(ctx, { name: "foo" });
+        const sumBefore = await sumHandler(ctx);
+        await insertHandler(ctx, { key, value, summand });
+        await validateTree(ctx);
+        const sumAfter = await sumHandler(ctx);
         expect(sumAfter).toEqual(sumBefore + summand);
       }
       async function del(key: number) {
-        const sumBefore = await sumHandler(ctx, { name: "foo" });
-        const itemBefore = await getHandler(ctx, { name: "foo", key });
+        const sumBefore = await sumHandler(ctx);
+        const itemBefore = await getHandler(ctx, { key });
         expect(itemBefore).not.toBeNull();
-        await deleteHandler(ctx, { name: "foo", key });
-        await validateTree(ctx, { name: "foo" });
-        const sumAfter = await sumHandler(ctx, { name: "foo" });
+        await deleteHandler(ctx, { key });
+        await validateTree(ctx);
+        const sumAfter = await sumHandler(ctx);
         expect(sumAfter).toEqual(sumBefore - itemBefore!.s);
       }
       await insert(1, "a", 1);

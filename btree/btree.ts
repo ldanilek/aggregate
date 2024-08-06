@@ -1,5 +1,6 @@
 import { Value as ConvexValue, v } from "convex/values";
 import {
+  componentArg,
   DatabaseReader,
   DatabaseWriter,
   mutation,
@@ -26,12 +27,12 @@ function log(s: string) {
 
 export async function insertHandler(
   ctx: { db: DatabaseWriter },
-  args: { name: string; key: Key; value: Value, summand?: number }
+  args: { key: Key; value: Value, summand?: number }
 ) {
-  const tree = await getOrCreateTree(ctx.db, args.name);
+  const tree = await getOrCreateTree(ctx.db);
   const summand = args.summand ?? 0;
   const pushUp = await insertIntoNode(
-    ctx.db,
+    ctx,
     tree.root,
     { k: args.key, v: args.value, s: summand },
   );
@@ -50,7 +51,6 @@ export async function insertHandler(
 
 export const insert = mutation({
   args: {
-    name: v.string(),
     key: v.any(),
     value: v.any(),
     summand: v.optional(v.number()),
@@ -60,10 +60,10 @@ export const insert = mutation({
 
 export async function deleteHandler(
   ctx: { db: DatabaseWriter },
-  args: { name: string; key: Key }
+  args: { key: Key }
 ) {
-  const tree = await getOrCreateTree(ctx.db, args.name);
-  await deleteFromNode(ctx.db, tree.root, args.key);
+  const tree = await getOrCreateTree(ctx.db);
+  await deleteFromNode(ctx, tree.root, args.key);
   const root = (await ctx.db.get(tree.root))!;
   if (root.items.length === 0 && root.subtrees.length === 1) {
     log(
@@ -78,26 +78,37 @@ export async function deleteHandler(
 
 export const deleteKey = mutation({
   args: {
-    name: v.string(),
     key: v.any(),
   },
   handler: deleteHandler,
 });
 
+export const modifyKey = mutation({
+  args: {
+    keyBefore: v.any(),
+    keyAfter: v.any(),
+    value: v.any(),
+    summand: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    await deleteHandler(ctx, { key: args.keyBefore });
+    await insertHandler(ctx, { key: args.keyAfter, value: args.value, summand: args.summand });
+  },
+});
+
 export const validate = query({
-  args: { name: v.string() },
+  args: { },
   handler: validateTree,
 });
 
 export async function validateTree(
   ctx: { db: DatabaseReader },
-  args: { name: string }
 ) {
-  const tree = await getTree(ctx.db, args.name);
+  const tree = await getTree(ctx.db);
   if (!tree) {
     return;
   }
-  await validateNode(ctx.db, tree.root, 0);
+  await validateNode(ctx, tree.root, 0);
 }
 
 type ValidationResult = {
@@ -106,19 +117,31 @@ type ValidationResult = {
   height: number;
 };
 
+function MAX_NODE_SIZE(ctx: any) {
+  return componentArg(ctx, "MAX_NODE_SIZE");
+}
+
+function MIN_NODE_SIZE(ctx: any) {
+  const max = componentArg(ctx, "MAX_NODE_SIZE");
+  if (max % 2 !== 0 || max < 4) {
+    throw new Error("MAX_NODE_SIZE must be even and at least 4");
+  }
+  return max / 2;
+}
+
 async function validateNode(
-  db: DatabaseReader,
+  ctx: {db: DatabaseReader},
   node: Id<"btreeNode">,
   depth: number
 ): Promise<ValidationResult> {
-  const n = await db.get(node);
+  const n = await ctx.db.get(node);
   if (!n) {
     throw new Error(`missing node ${node}`);
   }
-  if (n.items.length > MAX_NODE_SIZE) {
+  if (n.items.length > MAX_NODE_SIZE(ctx)) {
     throw new Error(`node ${node} exceeds max size`);
   }
-  if (depth > 0 && n.items.length < MIN_NODE_SIZE) {
+  if (depth > 0 && n.items.length < MIN_NODE_SIZE(ctx)) {
     throw new Error(`non-root node ${node} has less than min-size`);
   }
   if (n.subtrees.length > 0 && n.items.length + 1 !== n.subtrees.length) {
@@ -134,7 +157,7 @@ async function validateNode(
     }
   }
   const validatedSubtrees = await Promise.all(
-    n.subtrees.map((subtree) => validateNode(db, subtree, depth + 1))
+    n.subtrees.map((subtree) => validateNode(ctx, subtree, depth + 1))
   );
   for (let i = 0; i < n.subtrees.length; i++) {
     // Each subtree's min is greater than the key at the prior index
@@ -158,7 +181,7 @@ async function validateNode(
   }
 
   // Node count matches sum of subtree counts plus key count.
-  const counts = await subtreeCounts(db, n);
+  const counts = await subtreeCounts(ctx.db, n);
   const atNode = nodeCounts(n);
   const acc = add(accumulate(counts), accumulate(atNode));
   if (acc.count !== n.aggregate.count) {
@@ -180,8 +203,8 @@ async function validateNode(
   return { min, max, height };
 }
 
-export async function dumpTree(db: DatabaseReader, name: string) {
-  const t = (await getTree(db, name))!;
+export async function dumpTree(db: DatabaseReader) {
+  const t = (await getTree(db))!;
   return dumpNode(db, t.root);
 }
 
@@ -207,15 +230,14 @@ async function dumpNode(
 }
 
 export const count = query({
-  args: { name: v.string() },
+  args: { },
   handler: countHandler,
 });
 
 export async function countHandler(
   ctx: { db: DatabaseReader },
-  args: { name: string }
 ) {
-  const tree = await getTree(ctx.db, args.name);
+  const tree = await getTree(ctx.db);
   if (!tree) {
     return 0;
   }
@@ -224,15 +246,14 @@ export async function countHandler(
 }
 
 export const sum = query({
-  args: { name: v.string() },
+  args: { },
   handler: sumHandler,
 });
 
 export async function sumHandler(
   ctx: { db: DatabaseReader },
-  args: { name: string }
 ) {
-  const tree = await getTree(ctx.db, args.name);
+  const tree = await getTree(ctx.db);
   if (!tree) {
     return 0;
   }
@@ -244,14 +265,14 @@ export async function sumHandler(
 /// If k1 or k2 are undefined, that bound is unlimited.
 export async function countBetweenHandler(
   ctx: { db: DatabaseReader },
-  args: { name: string; k1?: Key; k2?: Key }
+  args: { k1?: Key; k2?: Key }
 ) {
-  const tree = (await getTree(ctx.db, args.name))!;
+  const tree = (await getTree(ctx.db))!;
   return await countBetweenInNode(ctx.db, tree.root, args.k1, args.k2);
 }
 
 export const countBetween = query({
-  args: { name: v.string(), k1: v.optional(v.any()), k2: v.optional(v.any()) },
+  args: { k1: v.optional(v.any()), k2: v.optional(v.any()) },
   handler: countBetweenHandler,
 });
 
@@ -312,14 +333,14 @@ async function countBetweenInNode(
 
 export async function getHandler(
   ctx: { db: DatabaseReader },
-  args: { name: string; key: Key }
+  args: { key: Key }
 ) {
-  const tree = (await getTree(ctx.db, args.name))!;
+  const tree = (await getTree(ctx.db))!;
   return await getInNode(ctx.db, tree.root, args.key);
 }
 
 export const get = query({
-  args: { name: v.string(), key: v.any() },
+  args: { key: v.any() },
   handler: getHandler,
 });
 
@@ -347,28 +368,28 @@ async function getInNode(
 }
 
 export const atIndex = query({
-  args: { name: v.string(), index: v.number() },
+  args: { index: v.number() },
   handler: atIndexHandler,
 });
 
 export async function atIndexHandler(
   ctx: { db: DatabaseReader },
-  args: { name: string; index: number }
+  args: { index: number }
 ) {
-  const tree = (await getTree(ctx.db, args.name))!;
+  const tree = (await getTree(ctx.db))!;
   return await atIndexInNode(ctx.db, tree.root, args.index);
 }
 
 export async function rankHandler(
   ctx: { db: DatabaseReader },
-  args: { name: string; key: Key }
+  args: { key: Key }
 ) {
-  const tree = (await getTree(ctx.db, args.name))!;
+  const tree = (await getTree(ctx.db))!;
   return await rankInNode(ctx.db, tree.root, args.key);
 }
 
 export const rank = query({
-  args: { name: v.string(), key: v.any() },
+  args: { key: v.any() },
   handler: rankHandler,
 });
 
@@ -405,11 +426,11 @@ async function rankInNode(
 }
 
 async function deleteFromNode(
-  db: DatabaseWriter,
+  ctx: {db: DatabaseWriter},
   node: Id<"btreeNode">,
   key: Key
 ): Promise<Item | null> {
-  let n = (await db.get(node))!;
+  let n = (await ctx.db.get(node))!;
   let foundItem: null | Item = null;
   let i = 0;
   for (; i < n.items.length; i++) {
@@ -423,20 +444,20 @@ async function deleteFromNode(
       // we've found the key. delete it.
       if (n.subtrees.length === 0) {
         // if this is a leaf node, just delete the key
-        await db.patch(node, {
+        await ctx.db.patch(node, {
           items: [...n.items.slice(0, i), ...n.items.slice(i + 1)],
           aggregate: sub(n.aggregate, itemAggregate(n.items[i])),
         });
         return n.items[i];
       }
       // if this is an internal node, replace the key with the predecessor
-      const predecessor = await negativeIndexInNode(db, n.subtrees[i], 0);
+      const predecessor = await negativeIndexInNode(ctx.db, n.subtrees[i], 0);
       log(`replacing ${p(key)} with predecessor ${p(predecessor.k)}`);
       foundItem = n.items[i];
-      await db.patch(node, {
+      await ctx.db.patch(node, {
         items: [...n.items.slice(0, i), predecessor, ...n.items.slice(i + 1)],
       });
-      n = (await db.get(node))!;
+      n = (await ctx.db.get(node))!;
       // From now on, we're deleting the predecessor from the left subtree
       key = predecessor.k;
       break;
@@ -449,33 +470,33 @@ async function deleteFromNode(
     // For now we don't throw to support patching to backfill.
     return null;
   }
-  const deleted = await deleteFromNode(db, n.subtrees[i], key);
+  const deleted = await deleteFromNode(ctx, n.subtrees[i], key);
   if (!deleted) {
     return null;
   }
   if (!foundItem) {
     foundItem = deleted;
   }
-  await db.patch(node, {
+  await ctx.db.patch(node, {
     aggregate: sub(n.aggregate, itemAggregate(foundItem)),
   });
 
   // Now we need to check if the subtree at index i is too small
-  const deficientSubtree = (await db.get(n.subtrees[i]))!;
-  if (deficientSubtree.items.length < MIN_NODE_SIZE) {
+  const deficientSubtree = (await ctx.db.get(n.subtrees[i]))!;
+  if (deficientSubtree.items.length < MIN_NODE_SIZE(ctx)) {
     log(`deficient subtree ${deficientSubtree._id}`);
     // If the subtree is too small, we need to rebalance
     if (i > 0) {
       // Try to move a key from the left sibling
-      const leftSibling = (await db.get(n.subtrees[i - 1]))!;
-      if (leftSibling.items.length > MIN_NODE_SIZE) {
+      const leftSibling = (await ctx.db.get(n.subtrees[i - 1]))!;
+      if (leftSibling.items.length > MIN_NODE_SIZE(ctx)) {
         log(`rotating right with left sibling ${leftSibling._id}`);
         // Rotate right
         const grandchild = leftSibling.subtrees.length
-          ? await db.get(leftSibling.subtrees[leftSibling.subtrees.length - 1])
+          ? await ctx.db.get(leftSibling.subtrees[leftSibling.subtrees.length - 1])
           : null;
         const grandchildCount = grandchild ? grandchild.aggregate : { count: 0, sum: 0 };
-        await db.patch(deficientSubtree._id, {
+        await ctx.db.patch(deficientSubtree._id, {
           items: [n.items[i - 1], ...deficientSubtree.items],
           subtrees: grandchild
             ? [grandchild._id, ...deficientSubtree.subtrees]
@@ -485,7 +506,7 @@ async function deleteFromNode(
             itemAggregate(n.items[i - 1]),
           ),
         });
-        await db.patch(leftSibling._id, {
+        await ctx.db.patch(leftSibling._id, {
           items: leftSibling.items.slice(0, leftSibling.items.length - 1),
           subtrees: grandchild
             ? leftSibling.subtrees.slice(0, leftSibling.subtrees.length - 1)
@@ -495,7 +516,7 @@ async function deleteFromNode(
             itemAggregate(leftSibling.items[leftSibling.items.length - 1])
           ),
         });
-        await db.patch(node, {
+        await ctx.db.patch(node, {
           items: [...n.items.slice(0, i - 1), leftSibling.items[leftSibling.items.length - 1], ...n.items.slice(i)],
         });
         return foundItem;
@@ -503,22 +524,22 @@ async function deleteFromNode(
     }
     if (i < n.subtrees.length - 1) {
       // Try to move a key from the right sibling
-      const rightSibling = (await db.get(n.subtrees[i + 1]))!;
-      if (rightSibling.items.length > MIN_NODE_SIZE) {
+      const rightSibling = (await ctx.db.get(n.subtrees[i + 1]))!;
+      if (rightSibling.items.length > MIN_NODE_SIZE(ctx)) {
         log(`rotating left with right sibling ${rightSibling._id}`);
         // Rotate left
         const grandchild = rightSibling.subtrees.length
-          ? await db.get(rightSibling.subtrees[0])
+          ? await ctx.db.get(rightSibling.subtrees[0])
           : null;
         const grandchildCount = grandchild ? grandchild.aggregate : { count: 0, sum: 0 };
-        await db.patch(deficientSubtree._id, {
+        await ctx.db.patch(deficientSubtree._id, {
           items: [...deficientSubtree.items, n.items[i]],
           subtrees: grandchild
             ? [...deficientSubtree.subtrees, grandchild._id]
             : [],
           aggregate: add(add(deficientSubtree.aggregate, grandchildCount), itemAggregate(n.items[i])),
         });
-        await db.patch(rightSibling._id, {
+        await ctx.db.patch(rightSibling._id, {
           items: rightSibling.items.slice(1),
           subtrees: grandchild ? rightSibling.subtrees.slice(1) : [],
           aggregate: sub(
@@ -526,7 +547,7 @@ async function deleteFromNode(
             itemAggregate(rightSibling.items[0]),
           ),
         });
-        await db.patch(node, {
+        await ctx.db.patch(node, {
           items: [...n.items.slice(0, i), rightSibling.items[0], ...n.items.slice(i + 1)],
         });
         return foundItem;
@@ -536,11 +557,11 @@ async function deleteFromNode(
     if (i > 0) {
       log(`merging with left sibling`);
       // Merge with left sibling
-      await mergeNodes(db, n, i - 1);
+      await mergeNodes(ctx.db, n, i - 1);
     } else {
       log(`merging with right sibling`);
       // Merge with right sibling
-      await mergeNodes(db, n, i);
+      await mergeNodes(ctx.db, n, i);
     }
   }
   return foundItem;
@@ -651,15 +672,12 @@ type PushUp = {
   item: Item;
 };
 
-const MAX_NODE_SIZE = 4;
-const MIN_NODE_SIZE = 2;
-
 async function insertIntoNode(
-  db: DatabaseWriter,
+  ctx: {db: DatabaseWriter},
   node: Id<"btreeNode">,
   item: Item,
 ): Promise<PushUp | null> {
-  const n = (await db.get(node))!;
+  const n = (await ctx.db.get(node))!;
   let i = 0;
   for (; i < n.items.length; i++) {
     const compare = compareKeys(item.k, n.items[i].k);
@@ -674,9 +692,9 @@ async function insertIntoNode(
   // insert key before index i
   if (n.subtrees.length > 0) {
     // insert into subtree
-    const pushUp = await insertIntoNode(db, n.subtrees[i], item);
+    const pushUp = await insertIntoNode(ctx, n.subtrees[i], item);
     if (pushUp) {
-      await db.patch(node, {
+      await ctx.db.patch(node, {
         items: [...n.items.slice(0, i), pushUp.item, ...n.items.slice(i)],
         subtrees: [
           ...n.subtrees.slice(0, i),
@@ -687,59 +705,59 @@ async function insertIntoNode(
       });
     }
   } else {
-    await db.patch(node, {
+    await ctx.db.patch(node, {
       items: [...n.items.slice(0, i), item, ...n.items.slice(i)],
     });
   }
-  await db.patch(node, {
+  await ctx.db.patch(node, {
     aggregate: add(n.aggregate, itemAggregate(item)),
   });
 
-  const newN = (await db.get(node))!;
-  if (newN.items.length > MAX_NODE_SIZE) {
+  const newN = (await ctx.db.get(node))!;
+  if (newN.items.length > MAX_NODE_SIZE(ctx)) {
     if (
-      newN.items.length !== MAX_NODE_SIZE + 1 ||
-      newN.items.length !== 2 * MIN_NODE_SIZE + 1
+      newN.items.length !== (MAX_NODE_SIZE(ctx) as number) + 1 ||
+      newN.items.length !== 2 * MIN_NODE_SIZE(ctx) + 1
     ) {
       throw new Error(`bad ${newN.items.length}`);
     }
-    log(`splitting node ${newN._id} at ${newN.items[MIN_NODE_SIZE].k}`);
+    log(`splitting node ${newN._id} at ${newN.items[MIN_NODE_SIZE(ctx)].k}`);
     const topLevel = nodeCounts(newN);
-    const subCounts = await subtreeCounts(db, newN);
+    const subCounts = await subtreeCounts(ctx.db, newN);
     const leftCount = add(
-      accumulate(topLevel.slice(0, MIN_NODE_SIZE)),
-      accumulate(subCounts.length ? subCounts.slice(0, MIN_NODE_SIZE + 1) : []),
+      accumulate(topLevel.slice(0, MIN_NODE_SIZE(ctx))),
+      accumulate(subCounts.length ? subCounts.slice(0, MIN_NODE_SIZE(ctx) + 1) : []),
     );
     const rightCount = add(
-      accumulate(topLevel.slice(MIN_NODE_SIZE + 1)),
-      accumulate(subCounts.length ? subCounts.slice(MIN_NODE_SIZE + 1) : []),
+      accumulate(topLevel.slice(MIN_NODE_SIZE(ctx) + 1)),
+      accumulate(subCounts.length ? subCounts.slice(MIN_NODE_SIZE(ctx) + 1) : []),
     );
     if (leftCount.count + rightCount.count + 1 !== newN.aggregate.count) {
       throw new Error(
         `bad count split ${leftCount.count} ${rightCount.count} ${newN.aggregate.count}`
       );
     }
-    if (leftCount.sum + rightCount.sum + newN.items[MIN_NODE_SIZE].s !== newN.aggregate.sum) {
+    if (leftCount.sum + rightCount.sum + newN.items[MIN_NODE_SIZE(ctx)].s !== newN.aggregate.sum) {
       throw new Error(
-        `bad sum split ${leftCount.sum} ${rightCount.sum} ${newN.items[MIN_NODE_SIZE].s} ${newN.aggregate.sum}`
+        `bad sum split ${leftCount.sum} ${rightCount.sum} ${newN.items[MIN_NODE_SIZE(ctx)].s} ${newN.aggregate.sum}`
       );
     }
-    await db.patch(node, {
-      items: newN.items.slice(0, MIN_NODE_SIZE),
+    await ctx.db.patch(node, {
+      items: newN.items.slice(0, MIN_NODE_SIZE(ctx)),
       subtrees: newN.subtrees.length
-        ? newN.subtrees.slice(0, MIN_NODE_SIZE + 1)
+        ? newN.subtrees.slice(0, MIN_NODE_SIZE(ctx) + 1)
         : [],
       aggregate: leftCount,
     });
-    const splitN = await db.insert("btreeNode", {
-      items: newN.items.slice(MIN_NODE_SIZE + 1),
+    const splitN = await ctx.db.insert("btreeNode", {
+      items: newN.items.slice(MIN_NODE_SIZE(ctx) + 1),
       subtrees: newN.subtrees.length
-        ? newN.subtrees.slice(MIN_NODE_SIZE + 1)
+        ? newN.subtrees.slice(MIN_NODE_SIZE(ctx) + 1)
         : [],
       aggregate: rightCount,
     });
     return {
-      item: newN.items[MIN_NODE_SIZE],
+      item: newN.items[MIN_NODE_SIZE(ctx)],
       leftSubtree: node,
       rightSubtree: splitN,
       leftSubtreeCount: leftCount,
@@ -753,18 +771,16 @@ function compareKeys(k1: Key, k2: Key) {
   return compareValues(k1, k2);
 }
 
-export async function getTree(db: DatabaseReader, name: string) {
+export async function getTree(db: DatabaseReader) {
   return await db
     .query("btree")
-    .withIndex("name", (q) => q.eq("name", name))
     .unique();
 }
 
 async function getOrCreateTree(
   db: DatabaseWriter,
-  name: string,
 ): Promise<Doc<"btree">> {
-  const originalTree = await getTree(db, name);
+  const originalTree = await getTree(db);
   if (originalTree) {
     return originalTree;
   }
@@ -777,7 +793,6 @@ async function getOrCreateTree(
     },
   });
   const id = await db.insert("btree", {
-    name,
     root,
   });
   const newTree = await db.get(id);
@@ -786,9 +801,9 @@ async function getOrCreateTree(
 }
 
 export const clearTree = mutation({
-  args: { name: v.string() },
-  handler: async (ctx, { name }) => {
-    const tree = await getTree(ctx.db, name);
+  args: { },
+  handler: async (ctx) => {
+    const tree = await getTree(ctx.db);
     if (tree) {
       await ctx.db.delete(tree._id);
     }

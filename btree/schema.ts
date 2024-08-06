@@ -24,10 +24,10 @@ const aggregate = v.object({
 export type Aggregate = Infer<typeof aggregate>;
 
 export default defineSchema({
+  // Singleton.
   btree: defineTable({
-    name: v.string(),
     root: v.id("btreeNode"),
-  }).index("name", ["name"]),
+  }),
   btreeNode: defineTable({
     items: v.array(item),
     subtrees: v.array(v.id("btreeNode")),
