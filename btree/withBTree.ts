@@ -4,11 +4,10 @@ import {
   FilterApi,
   FunctionReference,
   GenericDataModel,
-  GenericDatabaseWriter,
   GenericMutationCtx,
   GenericQueryCtx,
-  QueryInitializer,
   TableNamesInDataModel,
+  createFunctionHandle,
 } from "convex/server";
 import {
   Key,
@@ -25,21 +24,18 @@ type InstalledAPI = InternalizeApi<
   FilterApi<typeof functions, FunctionReference<any, "public", any, any>>>;
 
 
-export function mutationWithBTree<
+export async function initBTree<
   DataModel extends GenericDataModel,
   T extends TableNamesInDataModel<DataModel>,
   K extends Key,
->(btree: AttachBTree<DataModel, T, K>) {
-  return {
-    args: {},
-    input: async (ctx: GenericMutationCtx<DataModel>, _args: any) => {
-      const db = new WrapWriter(ctx, btree);
-      return {
-        ctx: { db },
-        args: {},
-      };
-    },
-  };
+>(
+  ctx: GenericMutationCtx<DataModel>,
+  api: InstalledAPI, 
+  getKey: FunctionReference<"query", any, { doc: DocumentByName<DataModel, T> }, {key: K; summand?: number}>,
+): Promise<void> {
+  await ctx.runMutation(api.btree.init, {
+    getKey: await createFunctionHandle(getKey),
+  });
 }
 
 export class BTree<
@@ -104,117 +100,3 @@ export class BTree<
   }
   // TODO: iter between keys
 }
-
-class WrapWriter<
-  DataModel extends GenericDataModel,
-  T extends TableNamesInDataModel<DataModel>,
-  K extends Key,
-> {
-  ctx: GenericMutationCtx<DataModel>;
-  system: GenericDatabaseWriter<DataModel>["system"];
-  btree: AttachBTree<DataModel, T, K>;
-
-  constructor(
-    ctx: GenericMutationCtx<DataModel>,
-    btree: AttachBTree<DataModel, T, K>
-  ) {
-    this.ctx = ctx;
-    this.system = ctx.db.system;
-    this.btree = btree;
-  }
-  normalizeId<TableName extends TableNamesInDataModel<DataModel>>(
-    tableName: TableName,
-    id: string
-  ): GenericId<TableName> | null {
-    return this.ctx.db.normalizeId(tableName, id);
-  }
-  async insert<TableName extends string>(
-    table: TableName,
-    value: any
-  ): Promise<any> {
-    const id = await this.ctx.db.insert(table, value);
-    if (table === (this.btree.tableName as any)) {
-      await this.ctx.runMutation(this.btree.api.btree.insert, {
-        key: this.btree.getKey(value),
-        value: id,
-        summand: this.btree.getSummand(value),
-      });
-    }
-    return id;
-  }
-  async patch<TableName extends string>(
-    tableName: TableName,
-    id: GenericId<TableName>,
-    value: Partial<any>
-  ): Promise<void> {
-    if (tableName === (this.btree.tableName as any)) {
-      // WARNING: these four operations get, patch, get, modifyKey are not atomic.
-      // If called in parallel with other writes, the tree may become invalid.
-      const keyBefore = this.btree.getKey((await this.ctx.db.get(id))!);
-      await this.ctx.db.patch(id, value);
-      const valueAfter = (await this.ctx.db.get(id))!;
-      const keyAfter = this.btree.getKey(valueAfter);
-
-      await this.ctx.runMutation(this.btree.api.btree.modifyKey,
-        {
-          keyBefore,
-          keyAfter,
-          value: id,
-          summand: this.btree.getSummand(valueAfter),
-        }
-      );
-    } else {
-      await this.ctx.db.patch(id, value);
-    }
-  }
-  async replace<TableName extends string>(
-    tableName: TableName,
-    id: GenericId<TableName>,
-    value: any
-  ): Promise<void> {
-    if (tableName === (this.btree.tableName as any)) {
-      const keyBefore = this.btree.getKey((await this.ctx.db.get(id))!);
-      await this.ctx.db.replace(id, value);
-      const valueAfter = (await this.ctx.db.get(id))!;
-      const keyAfter = this.btree.getKey(valueAfter);
-      await this.ctx.runMutation(this.btree.api.btree.modifyKey,
-        {
-          keyBefore,
-          keyAfter,
-          value: id,
-          summand: this.btree.getSummand(valueAfter),
-        }
-      );
-    } else {
-      await this.ctx.db.replace(id, value);
-    }
-  }
-  async delete(tableName: any, id: GenericId<string>): Promise<void> {
-    if (tableName === (this.btree.tableName as any)) {
-      const keyBefore = this.btree.getKey((await this.ctx.db.get(id))!);
-      await this.ctx.runMutation(this.btree.api.btree.deleteKey,
-        {
-          key: keyBefore,
-        }
-      );
-    }
-    return await this.ctx.db.delete(id);
-  }
-  get<TableName extends string>(id: GenericId<TableName>): Promise<any> {
-    return this.ctx.db.get(id);
-  }
-  query<TableName extends string>(tableName: TableName): QueryInitializer<any> {
-    return this.ctx.db.query(tableName);
-  }
-}
-
-export type AttachBTree<
-  DataModel extends GenericDataModel,
-  T extends TableNamesInDataModel<DataModel>,
-  K extends Key,
-> = {
-  tableName: T;
-  api: InstalledAPI;
-  getKey: (doc: DocumentByName<DataModel, T>) => K;
-  getSummand: (doc: DocumentByName<DataModel, T>) => number;
-};

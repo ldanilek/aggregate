@@ -9,6 +9,8 @@ import {
 import { Doc, Id } from "./_generated/dataModel";
 import { compareValues } from "./compare";
 import { Aggregate, Item } from "./schema";
+import { FunctionHandle, GenericDocument } from "convex/server";
+import { triggerArgsValidator } from "../triggers/types";
 
 const BTREE_DEBUG = false;
 
@@ -29,7 +31,7 @@ export async function insertHandler(
   ctx: { db: DatabaseWriter },
   args: { key: Key; value: Value, summand?: number }
 ) {
-  const tree = await getOrCreateTree(ctx.db);
+  const tree = await mustGetTree(ctx.db);
   const summand = args.summand ?? 0;
   const pushUp = await insertIntoNode(
     ctx,
@@ -49,20 +51,11 @@ export async function insertHandler(
   }
 }
 
-export const insert = mutation({
-  args: {
-    key: v.any(),
-    value: v.any(),
-    summand: v.optional(v.number()),
-  },
-  handler: insertHandler,
-});
-
 export async function deleteHandler(
   ctx: { db: DatabaseWriter },
   args: { key: Key }
 ) {
-  const tree = await getOrCreateTree(ctx.db);
+  const tree = await mustGetTree(ctx.db);
   await deleteFromNode(ctx, tree.root, args.key);
   const root = (await ctx.db.get(tree.root))!;
   if (root.items.length === 0 && root.subtrees.length === 1) {
@@ -75,26 +68,6 @@ export async function deleteHandler(
     await ctx.db.delete(root._id);
   }
 }
-
-export const deleteKey = mutation({
-  args: {
-    key: v.any(),
-  },
-  handler: deleteHandler,
-});
-
-export const modifyKey = mutation({
-  args: {
-    keyBefore: v.any(),
-    keyAfter: v.any(),
-    value: v.any(),
-    summand: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    await deleteHandler(ctx, { key: args.keyBefore });
-    await insertHandler(ctx, { key: args.keyAfter, value: args.value, summand: args.summand });
-  },
-});
 
 export const validate = query({
   args: { },
@@ -716,7 +689,7 @@ async function insertIntoNode(
   const newN = (await ctx.db.get(node))!;
   if (newN.items.length > MAX_NODE_SIZE(ctx)) {
     if (
-      newN.items.length !== (MAX_NODE_SIZE(ctx) as number) + 1 ||
+      newN.items.length !== (MAX_NODE_SIZE(ctx)) + 1 ||
       newN.items.length !== 2 * MIN_NODE_SIZE(ctx) + 1
     ) {
       throw new Error(`bad ${newN.items.length}`);
@@ -777,8 +750,17 @@ export async function getTree(db: DatabaseReader) {
     .unique();
 }
 
+export async function mustGetTree(db: DatabaseReader) {
+  const tree = await getTree(db);
+  if (!tree) {
+    throw new Error("btree not initialized");
+  }
+  return tree;
+}
+
 async function getOrCreateTree(
   db: DatabaseWriter,
+  getKey: FunctionHandle<"query", { doc: Doc<"btreeNode"> }, { key: Key; summand?: number }>,
 ): Promise<Doc<"btree">> {
   const originalTree = await getTree(db);
   if (originalTree) {
@@ -794,11 +776,23 @@ async function getOrCreateTree(
   });
   const id = await db.insert("btree", {
     root,
+    getKey,
   });
   const newTree = await db.get(id);
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
   return newTree!;
 }
+
+export const init = mutation({
+  args: { getKey: v.string() },
+  handler: async (ctx, { getKey }) => {
+    const existing = await ctx.db.query("btree").unique();
+    if (existing) {
+      await ctx.db.delete(existing._id);
+    }
+    await getOrCreateTree(ctx.db, getKey as any);
+  },
+});
 
 export const clearTree = mutation({
   args: { },
@@ -806,6 +800,36 @@ export const clearTree = mutation({
     const tree = await getTree(ctx.db);
     if (tree) {
       await ctx.db.delete(tree._id);
+    }
+  },
+});
+
+export const trigger = mutation({
+  args: triggerArgsValidator(),
+  returns: v.null(),
+  handler: async (ctx, { change }) => {
+    const tree = await mustGetTree(ctx.db);
+    const getKey = tree.getKey as FunctionHandle<"query", { doc: GenericDocument }, { key: Key; summand?: number }>;
+    switch (change.type) {
+      case "insert": {
+        const { key, summand } = await ctx.runQuery(getKey, { doc: change.newDoc! });
+        await insertHandler(ctx, { key: [key, change.id], value: change.id, summand });
+        break;
+      }
+      case "patch":
+        // fallthrough
+      case "replace": {
+        const { key: keyBefore } = await ctx.runQuery(getKey, { doc: change.oldDoc! });
+        const { key: keyAfter, summand: summandAfter } = await ctx.runQuery(getKey, { doc: change.newDoc! });
+        await deleteHandler(ctx, { key: [keyBefore, change.id] });
+        await insertHandler(ctx, { key: [keyAfter, change.id], value: change.id, summand: summandAfter });
+        break;
+      }
+      case "delete": {
+        const { key } = await ctx.runQuery(getKey, { doc: change.oldDoc! });
+        await deleteHandler(ctx, { key: [key, change.id] });
+        break;
+      }
     }
   },
 });

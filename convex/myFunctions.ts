@@ -1,20 +1,44 @@
-import { v } from "convex/values";
-import { BTree, mutationWithBTree } from "../btree/withBTree";
+import { v, Validator } from "convex/values";
+import { BTree, initBTree } from "../btree/withBTree";
 import {
   customMutation,
 } from "convex-helpers/server/customFunctions";
-import { mutation, query, app, QueryCtx } from "./_generated/server";
-import { DataModel } from "./_generated/dataModel";
+import { mutation, query, app, QueryCtx, internalMutation, internalQuery } from "./_generated/server";
+import { DataModel, Doc } from "./_generated/dataModel";
+import { FunctionReference } from "convex/server";
+import { internal } from "./_generated/api";
+import { WithTriggers, withTriggers } from "../triggers/client";
+import { atomicMutators } from "../triggers/atomicMutators";
+import { TriggerArgs } from "../triggers/types";
+
+const withAllTriggers: WithTriggers<DataModel> = withTriggers(app.triggers, {
+  numbers: {
+    atomicMutators: internal.myFunctions,
+    triggers: [app.numbersBTree.btree.trigger as FunctionReference<"mutation", any, TriggerArgs<DataModel, "numbers">, null>],
+  },
+});
+
+export const { atomicInsert, atomicPatch, atomicReplace, atomicDelete } = atomicMutators("numbers");
 
 const mutationWithNumbers = customMutation(
-  mutation as any,
-  mutationWithBTree<DataModel, "numbers", number>({
-    tableName: "numbers",
-    api: app.numbersBTree,
-    getKey: (doc) => doc.value,
-    getSummand: (doc) => doc.value,
-  })
+  mutation,
+  withAllTriggers,
 );
+
+export const getKey = internalQuery({
+  args: { doc: v.any() as Validator<Doc<"numbers">> },
+  returns: v.object({ key: v.number(), summand: v.optional(v.number()) }),
+  handler: async (_ctx, { doc }) => {
+    return { key: doc.value, summand: doc.value };
+  }
+});
+
+export const initNumbersBTree = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    await initBTree(ctx, app.numbersBTree, internal.myFunctions.getKey);
+  },
+});
 
 function numbersBTree(ctx: QueryCtx) {
   return new BTree<DataModel, "numbers", number>(

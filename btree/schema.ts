@@ -27,6 +27,8 @@ export default defineSchema({
   // Singleton.
   btree: defineTable({
     root: v.id("btreeNode"),
+    // function getKey({doc: DocumentByName<DataModel, T>}): { key: K; summand: number }
+    getKey: v.string(),
   }),
   btreeNode: defineTable({
     items: v.array(item),

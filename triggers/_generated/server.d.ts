@@ -148,91 +148,9 @@ export type DatabaseReader = GenericDatabaseReader<DataModel>;
  */
 export type DatabaseWriter = GenericDatabaseWriter<DataModel>;
 
-export declare const app: {
-  numbersBTree: {
-    btree: {
-      atIndex: FunctionReference<"query", "internal", { index: number }, any>;
-      atIndexHandler: FunctionReference<
-        "query",
-        "internal",
-        { index: number },
-        any
-      >;
-      clearTree: FunctionReference<"mutation", "internal", {}, any>;
-      count: FunctionReference<"query", "internal", {}, any>;
-      countBetween: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; k2?: any },
-        any
-      >;
-      countBetweenHandler: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; k2?: any },
-        any
-      >;
-      countHandler: FunctionReference<"query", "internal", {}, any>;
-      get: FunctionReference<"query", "internal", { key: any }, any>;
-      getHandler: FunctionReference<"query", "internal", { key: any }, any>;
-      init: FunctionReference<"mutation", "internal", { getKey: string }, any>;
-      rank: FunctionReference<"query", "internal", { key: any }, any>;
-      rankHandler: FunctionReference<"query", "internal", { key: any }, any>;
-      sum: FunctionReference<"query", "internal", {}, any>;
-      sumHandler: FunctionReference<"query", "internal", {}, any>;
-      trigger: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          change: {
-            id: string;
-            newDoc: any;
-            oldDoc: any;
-            type: "insert" | "patch" | "replace" | "delete";
-          };
-        },
-        null
-      >;
-      validate: FunctionReference<"query", "internal", {}, any>;
-      validateTree: FunctionReference<"query", "internal", {}, any>;
-    };
-  };
-  triggers: {
-    documents: {
-      deleteDoc: FunctionReference<
-        "mutation",
-        "internal",
-        { atomicDelete: string; id: string; triggers: Array<string> },
-        null
-      >;
-      insert: FunctionReference<
-        "mutation",
-        "internal",
-        { atomicInsert: string; triggers: Array<string>; value: any },
-        string
-      >;
-      patch: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          atomicPatch: string;
-          id: string;
-          triggers: Array<string>;
-          value: any;
-        },
-        null
-      >;
-      replace: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          atomicReplace: string;
-          id: string;
-          triggers: Array<string>;
-          value: any;
-        },
-        null
-      >;
-    };
-  };
-};
+export declare const component: {};
+type ComponentArgs = {};
+export declare const componentArg: <Name extends keyof ComponentArgs>(
+  ctx: GenericCtx,
+  name: Name,
+) => ComponentArgs[Name];
