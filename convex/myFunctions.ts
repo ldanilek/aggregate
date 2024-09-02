@@ -3,7 +3,7 @@ import { BTree, initBTree } from "../btree/withBTree";
 import {
   customMutation,
 } from "convex-helpers/server/customFunctions";
-import { mutation, query, app, QueryCtx, internalMutation, internalQuery } from "./_generated/server";
+import { mutation, query, components, QueryCtx, internalMutation, internalQuery } from "./_generated/server";
 import { DataModel, Doc } from "./_generated/dataModel";
 import { FunctionReference } from "convex/server";
 import { internal } from "./_generated/api";
@@ -11,10 +11,10 @@ import { WithTriggers, withTriggers } from "../triggers/client";
 import { atomicMutators } from "../triggers/atomicMutators";
 import { TriggerArgs } from "../triggers/types";
 
-const withAllTriggers: WithTriggers<DataModel> = withTriggers(app.triggers, {
+const withAllTriggers: WithTriggers<DataModel> = withTriggers(components.triggers, {
   numbers: {
     atomicMutators: internal.myFunctions,
-    triggers: [app.numbersBTree.btree.trigger as FunctionReference<"mutation", any, TriggerArgs<DataModel, "numbers">, null>],
+    triggers: [components.numbersBTree.btree.trigger as FunctionReference<"mutation", any, TriggerArgs<DataModel, "numbers">, null>],
   },
 });
 
@@ -36,14 +36,14 @@ export const getKey = internalQuery({
 export const initNumbersBTree = internalMutation({
   args: {},
   handler: async (ctx) => {
-    await initBTree(ctx, app.numbersBTree, internal.myFunctions.getKey);
+    await initBTree(ctx, components.numbersBTree, internal.myFunctions.getKey);
   },
 });
 
 function numbersBTree(ctx: QueryCtx) {
   return new BTree<DataModel, "numbers", number>(
     ctx,
-    app.numbersBTree
+    components.numbersBTree
   );
 }
 
@@ -120,7 +120,7 @@ export const sumNumbers = query({
 export const backfillBTree = mutationWithNumbers({
   args: {},
   handler: async (ctx) => {
-    await ctx.runMutation(app.numbersBTree.btree.clearTree, { });
+    await ctx.runMutation(components.numbersBTree.btree.clearTree, { });
 
     for await (const doc of ctx.db.query("numbers")) {
       await ctx.db.patch("numbers", doc._id, {});

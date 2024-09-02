@@ -1,6 +1,5 @@
 import {
   Expand,
-  FilterApi,
   FunctionHandle,
   FunctionReference,
   GenericDataModel,
@@ -10,7 +9,7 @@ import {
   TableNamesInDataModel,
   createFunctionHandle,
 } from "convex/server";
-import { functions } from "./_generated/api";
+import { api } from "./_generated/api";
 import { GenericId } from "convex/values";
 import { TriggerArgs } from "./types";
 import { AtomicMutators } from "./atomicMutators";
@@ -21,8 +20,7 @@ type InternalizeApi<API> = Expand<{
     ? FunctionReference<API[mod]["_type"], "internal", API[mod]["_args"], API[mod]["_returnType"], API[mod]["_componentPath"]>
     : InternalizeApi<API[mod]>;
 }>;
-type InstalledAPI = InternalizeApi<
-  FilterApi<typeof functions, FunctionReference<any, "public", any, any>>>;
+type InstalledAPI = InternalizeApi<typeof api>;
 
 export type Triggers<DataModel extends GenericDataModel> = {
   [TableName in TableNamesInDataModel<DataModel>]?: {

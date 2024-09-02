@@ -1,6 +1,5 @@
 import { Value as ConvexValue, v } from "convex/values";
 import {
-  componentArg,
   DatabaseReader,
   DatabaseWriter,
   mutation,
@@ -17,7 +16,7 @@ const BTREE_DEBUG = false;
 export type Key = ConvexValue;
 export type Value = ConvexValue;
 
-function p(v: ConvexValue): string {
+export function p(v: ConvexValue): string {
   return v?.toString() ?? "undefined";
 }
 
@@ -39,7 +38,7 @@ export async function insertHandler(
     { k: args.key, v: args.value, s: summand },
   );
   if (pushUp) {
-    const total = add(add(pushUp.leftSubtreeCount, pushUp.rightSubtreeCount), itemAggregate(pushUp.item));
+    const total = pushUp.leftSubtreeCount && pushUp.rightSubtreeCount && add(add(pushUp.leftSubtreeCount, pushUp.rightSubtreeCount), itemAggregate(pushUp.item));
     const newRoot = await ctx.db.insert("btreeNode", {
       items: [pushUp.item],
       subtrees: [pushUp.leftSubtree, pushUp.rightSubtree],
@@ -90,12 +89,12 @@ type ValidationResult = {
   height: number;
 };
 
-function MAX_NODE_SIZE(ctx: any) {
-  return componentArg(ctx, "MAX_NODE_SIZE");
+function MAX_NODE_SIZE(_ctx: any) {
+  return 4;
 }
 
-function MIN_NODE_SIZE(ctx: any) {
-  const max = componentArg(ctx, "MAX_NODE_SIZE");
+function MIN_NODE_SIZE(_ctx: any) {
+  const max = 4;
   if (max % 2 !== 0 || max < 4) {
     throw new Error("MAX_NODE_SIZE must be even and at least 4");
   }
@@ -157,12 +156,13 @@ async function validateNode(
   const counts = await subtreeCounts(ctx.db, n);
   const atNode = nodeCounts(n);
   const acc = add(accumulate(counts), accumulate(atNode));
-  if (acc.count !== n.aggregate.count) {
+  const nAggregate = await nodeAggregate(ctx.db, n);
+  if (acc.count !== nAggregate.count) {
     throw new Error(`node ${node} count does not match subtrees`);
   }
 
   // Node sum matches sum of subtree sums plus key sum.
-  if (acc.sum !== n.aggregate.sum) {
+  if (acc.sum !== nAggregate.sum) {
     throw new Error(`node ${node} sum does not match subtrees`);
   }
 
@@ -176,31 +176,6 @@ async function validateNode(
   return { min, max, height };
 }
 
-export async function dumpTree(db: DatabaseReader) {
-  const t = (await getTree(db))!;
-  return dumpNode(db, t.root);
-}
-
-async function dumpNode(
-  db: DatabaseReader,
-  node: Id<"btreeNode">
-): Promise<string> {
-  const n = (await db.get(node))!;
-  let s = "[";
-  if (n.subtrees.length === 0) {
-    s += n.items.map((i) => i.k).map(p).join(", ");
-  } else {
-    const subtrees = await Promise.all(
-      n.subtrees.map((subtree) => dumpNode(db, subtree))
-    );
-    for (let i = 0; i < n.items.length; i++) {
-      s += `${subtrees[i]}, ${p(n.items[i].k)}, `;
-    }
-    s += subtrees[n.items.length];
-  }
-  s += "]";
-  return s;
-}
 
 export const count = query({
   args: { },
@@ -215,7 +190,8 @@ export async function countHandler(
     return 0;
   }
   const root = (await ctx.db.get(tree.root))!;
-  return root.aggregate.count;
+  const nAggregate = await nodeAggregate(ctx.db, root);
+  return nAggregate.count;
 }
 
 export const sum = query({
@@ -231,7 +207,8 @@ export async function sumHandler(
     return 0;
   }
   const root = (await ctx.db.get(tree.root))!;
-  return root.aggregate.sum;
+  const nAggregate = await nodeAggregate(ctx.db, root);
+  return nAggregate.sum;
 }
 
 /// Count of keys that are *strictly* between k1 and k2.
@@ -419,7 +396,7 @@ async function deleteFromNode(
         // if this is a leaf node, just delete the key
         await ctx.db.patch(node, {
           items: [...n.items.slice(0, i), ...n.items.slice(i + 1)],
-          aggregate: sub(n.aggregate, itemAggregate(n.items[i])),
+          aggregate: n.aggregate && sub(n.aggregate, itemAggregate(n.items[i])),
         });
         return n.items[i];
       }
@@ -451,7 +428,7 @@ async function deleteFromNode(
     foundItem = deleted;
   }
   await ctx.db.patch(node, {
-    aggregate: sub(n.aggregate, itemAggregate(foundItem)),
+    aggregate: n.aggregate && sub(n.aggregate, itemAggregate(foundItem)),
   });
 
   // Now we need to check if the subtree at index i is too small
@@ -474,7 +451,7 @@ async function deleteFromNode(
           subtrees: grandchild
             ? [grandchild._id, ...deficientSubtree.subtrees]
             : [],
-          aggregate: add(
+          aggregate: deficientSubtree.aggregate && grandchildCount && add(
             add(deficientSubtree.aggregate, grandchildCount),
             itemAggregate(n.items[i - 1]),
           ),
@@ -484,7 +461,7 @@ async function deleteFromNode(
           subtrees: grandchild
             ? leftSibling.subtrees.slice(0, leftSibling.subtrees.length - 1)
             : [],
-          aggregate: sub(
+          aggregate: leftSibling.aggregate && grandchildCount && sub(
             sub(leftSibling.aggregate, grandchildCount),
             itemAggregate(leftSibling.items[leftSibling.items.length - 1])
           ),
@@ -510,12 +487,13 @@ async function deleteFromNode(
           subtrees: grandchild
             ? [...deficientSubtree.subtrees, grandchild._id]
             : [],
-          aggregate: add(add(deficientSubtree.aggregate, grandchildCount), itemAggregate(n.items[i])),
+          aggregate: deficientSubtree.aggregate && grandchildCount && add(
+            add(deficientSubtree.aggregate, grandchildCount), itemAggregate(n.items[i])),
         });
         await ctx.db.patch(rightSibling._id, {
           items: rightSibling.items.slice(1),
           subtrees: grandchild ? rightSibling.subtrees.slice(1) : [],
-          aggregate: sub(
+          aggregate: rightSibling.aggregate && grandchildCount && sub(
             sub(rightSibling.aggregate, grandchildCount),
             itemAggregate(rightSibling.items[0]),
           ),
@@ -551,7 +529,7 @@ async function mergeNodes(
   await db.patch(left._id, {
     items: [...left.items, parent.items[leftIndex], ...right.items],
     subtrees: [...left.subtrees, ...right.subtrees],
-    aggregate: add(add(left.aggregate, right.aggregate), itemAggregate(parent.items[leftIndex])),
+    aggregate: left.aggregate && right.aggregate && add(add(left.aggregate, right.aggregate), itemAggregate(parent.items[leftIndex])),
   });
   await db.patch(parent._id, {
     items: [
@@ -573,7 +551,8 @@ async function negativeIndexInNode(
   index: number
 ): Promise<Item> {
   const n = (await db.get(node))!;
-  return await atIndexInNode(db, node, n.aggregate.count - index - 1);
+  const nAggregate = await nodeAggregate(db, n);
+  return await atIndexInNode(db, node, nAggregate.count - index - 1);
 }
 
 async function atIndexInNode(
@@ -582,7 +561,8 @@ async function atIndexInNode(
   index: number
 ): Promise<Item> {
   const n = (await db.get(node))!;
-  if (index >= n.aggregate.count) {
+  const nAggregate = await nodeAggregate(db, n);
+  if (index >= nAggregate.count) {
     throw new Error(`index ${index} too big for node ${n._id}`);
   }
   if (n.subtrees.length === 0) {
@@ -614,9 +594,17 @@ async function subtreeCounts(db: DatabaseReader, node: Doc<"btreeNode">) {
   return await Promise.all(
     node.subtrees.map(async (subtree) => {
       const s = (await db.get(subtree))!;
-      return s.aggregate;
+      return nodeAggregate(db, s);
     })
   );
+}
+
+async function nodeAggregate(db: DatabaseReader, node: Doc<"btreeNode">): Promise<Aggregate> {
+  if (node.aggregate !== undefined) {
+    return node.aggregate;
+  }
+  const subCounts = await subtreeCounts(db, node);
+  return add(accumulate(nodeCounts(node)), accumulate(subCounts));
 }
 
 function add(a: Aggregate, b: Aggregate) {
@@ -640,8 +628,8 @@ function accumulate(nums: Aggregate[]) {
 type PushUp = {
   leftSubtree: Id<"btreeNode">;
   rightSubtree: Id<"btreeNode">;
-  leftSubtreeCount: Aggregate;
-  rightSubtreeCount: Aggregate;
+  leftSubtreeCount?: Aggregate;
+  rightSubtreeCount?: Aggregate;
   item: Item;
 };
 
@@ -683,7 +671,7 @@ async function insertIntoNode(
     });
   }
   await ctx.db.patch(node, {
-    aggregate: add(n.aggregate, itemAggregate(item)),
+    aggregate: n.aggregate && add(n.aggregate, itemAggregate(item)),
   });
 
   const newN = (await ctx.db.get(node))!;
@@ -705,12 +693,12 @@ async function insertIntoNode(
       accumulate(topLevel.slice(MIN_NODE_SIZE(ctx) + 1)),
       accumulate(subCounts.length ? subCounts.slice(MIN_NODE_SIZE(ctx) + 1) : []),
     );
-    if (leftCount.count + rightCount.count + 1 !== newN.aggregate.count) {
+    if (newN.aggregate && leftCount.count + rightCount.count + 1 !== newN.aggregate.count) {
       throw new Error(
         `bad count split ${leftCount.count} ${rightCount.count} ${newN.aggregate.count}`
       );
     }
-    if (leftCount.sum + rightCount.sum + newN.items[MIN_NODE_SIZE(ctx)].s !== newN.aggregate.sum) {
+    if (newN.aggregate && leftCount.sum + rightCount.sum + newN.items[MIN_NODE_SIZE(ctx)].s !== newN.aggregate.sum) {
       throw new Error(
         `bad sum split ${leftCount.sum} ${rightCount.sum} ${newN.items[MIN_NODE_SIZE(ctx)].s} ${newN.aggregate.sum}`
       );
@@ -733,8 +721,8 @@ async function insertIntoNode(
       item: newN.items[MIN_NODE_SIZE(ctx)],
       leftSubtree: node,
       rightSubtree: splitN,
-      leftSubtreeCount: leftCount,
-      rightSubtreeCount: rightCount,
+      leftSubtreeCount: newN.aggregate && leftCount,
+      rightSubtreeCount: newN.aggregate && rightCount,
     };
   }
   return null;
@@ -791,6 +779,14 @@ export const init = mutation({
       await ctx.db.delete(existing._id);
     }
     await getOrCreateTree(ctx.db, getKey as any);
+  },
+});
+
+export const makeRootLazy = mutation({
+  args: { },
+  handler: async (ctx) => {
+    const tree = await mustGetTree(ctx.db);
+    await ctx.db.patch(tree.root, { aggregate: undefined });
   },
 });
 

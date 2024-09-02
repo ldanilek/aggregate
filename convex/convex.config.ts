@@ -1,7 +1,7 @@
 import { defineApp } from "convex/server";
 
-import btree from "../btree/component.config";
-import triggers from "../triggers/component.config";
+import btree from "../btree/convex.config";
+import triggers from "../triggers/convex.config";
 
 const app = defineApp();
 const _btree = app.install(btree, {

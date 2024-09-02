@@ -33,6 +33,6 @@ export default defineSchema({
   btreeNode: defineTable({
     items: v.array(item),
     subtrees: v.array(v.id("btreeNode")),
-    aggregate,
+    aggregate: v.optional(aggregate),
   }),
 });

@@ -1,7 +1,6 @@
 import {
   DocumentByName,
   Expand,
-  FilterApi,
   FunctionReference,
   GenericDataModel,
   GenericMutationCtx,
@@ -12,7 +11,7 @@ import {
 import {
   Key,
 } from "./btree";
-import { functions } from "./_generated/api";
+import { api } from "./_generated/api";
 import { GenericId } from "convex/values";
 
 type InternalizeApi<API> = Expand<{
@@ -20,8 +19,7 @@ type InternalizeApi<API> = Expand<{
     ? FunctionReference<API[mod]["_type"], "internal", API[mod]["_args"], API[mod]["_returnType"], API[mod]["_componentPath"]>
     : InternalizeApi<API[mod]>;
 }>;
-type InstalledAPI = InternalizeApi<
-  FilterApi<typeof functions, FunctionReference<any, "public", any, any>>>;
+type InstalledAPI = InternalizeApi<typeof api>;
 
 
 export async function initBTree<
