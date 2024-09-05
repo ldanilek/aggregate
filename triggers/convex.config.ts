@@ -1,4 +1,2 @@
 import { defineComponent } from "convex/server";
-export default defineComponent("triggers", {
-  args: { },
-});
+export default defineComponent("triggers");

@@ -4,10 +4,9 @@ import btree from "../btree/convex.config";
 import triggers from "../triggers/convex.config";
 
 const app = defineApp();
-const _btree = app.install(btree, {
+app.use(btree, {
     name: "numbersBTree",
-    args: {},
 });
-app.install(triggers, {});
+app.use(triggers, {});
 
 export default app;
