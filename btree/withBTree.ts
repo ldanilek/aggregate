@@ -33,6 +33,7 @@ export async function initBTree<
 ): Promise<void> {
   await ctx.runMutation(api.btree.init, {
     getKey: await createFunctionHandle(getKey),
+    maxNodeSize: 4,
   });
 }
 

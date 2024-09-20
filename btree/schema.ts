@@ -29,6 +29,7 @@ export default defineSchema({
     root: v.id("btreeNode"),
     // function getKey({doc: DocumentByName<DataModel, T>}): { key: K; summand: number }
     getKey: v.string(),
+    maxNodeSize: v.number(),
   }),
   btreeNode: defineTable({
     items: v.array(item),

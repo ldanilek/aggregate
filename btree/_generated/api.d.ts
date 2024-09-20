@@ -60,7 +60,12 @@ declare const fullApiWithMounts: typeof fullApi & {
     countHandler: FunctionReference<"query", "public", {}, any>;
     get: FunctionReference<"query", "public", { key: any }, any>;
     getHandler: FunctionReference<"query", "public", { key: any }, any>;
-    init: FunctionReference<"mutation", "public", { getKey: string }, any>;
+    init: FunctionReference<
+      "mutation",
+      "public",
+      { getKey: string; maxNodeSize: number },
+      any
+    >;
     makeRootLazy: FunctionReference<"mutation", "public", {}, any>;
     rank: FunctionReference<"query", "public", { key: any }, any>;
     rankHandler: FunctionReference<"query", "public", { key: any }, any>;

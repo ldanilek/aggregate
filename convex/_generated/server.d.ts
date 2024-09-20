@@ -177,7 +177,12 @@ export declare const components: {
       countHandler: FunctionReference<"query", "internal", {}, any>;
       get: FunctionReference<"query", "internal", { key: any }, any>;
       getHandler: FunctionReference<"query", "internal", { key: any }, any>;
-      init: FunctionReference<"mutation", "internal", { getKey: string }, any>;
+      init: FunctionReference<
+        "mutation",
+        "internal",
+        { getKey: string; maxNodeSize: number },
+        any
+      >;
       makeRootLazy: FunctionReference<"mutation", "internal", {}, any>;
       rank: FunctionReference<"query", "internal", { key: any }, any>;
       rankHandler: FunctionReference<"query", "internal", { key: any }, any>;

@@ -4,6 +4,7 @@ import {
   DatabaseWriter,
   mutation,
   query,
+  QueryCtx,
 } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 import { compareValues } from "./compare";
@@ -89,12 +90,13 @@ type ValidationResult = {
   height: number;
 };
 
-function MAX_NODE_SIZE(_ctx: any) {
-  return 4;
+async function MAX_NODE_SIZE(ctx: { db: DatabaseReader }) {
+  const tree = await mustGetTree(ctx.db);
+  return tree.maxNodeSize;
 }
 
-function MIN_NODE_SIZE(_ctx: any) {
-  const max = 4;
+async function MIN_NODE_SIZE(ctx: { db: DatabaseReader }) {
+  const max = await MAX_NODE_SIZE(ctx);
   if (max % 2 !== 0 || max < 4) {
     throw new Error("MAX_NODE_SIZE must be even and at least 4");
   }
@@ -110,10 +112,10 @@ async function validateNode(
   if (!n) {
     throw new Error(`missing node ${node}`);
   }
-  if (n.items.length > MAX_NODE_SIZE(ctx)) {
+  if (n.items.length > await MAX_NODE_SIZE(ctx)) {
     throw new Error(`node ${node} exceeds max size`);
   }
-  if (depth > 0 && n.items.length < MIN_NODE_SIZE(ctx)) {
+  if (depth > 0 && n.items.length < await MIN_NODE_SIZE(ctx)) {
     throw new Error(`non-root node ${node} has less than min-size`);
   }
   if (n.subtrees.length > 0 && n.items.length + 1 !== n.subtrees.length) {
@@ -433,13 +435,14 @@ async function deleteFromNode(
 
   // Now we need to check if the subtree at index i is too small
   const deficientSubtree = (await ctx.db.get(n.subtrees[i]))!;
-  if (deficientSubtree.items.length < MIN_NODE_SIZE(ctx)) {
+  const minNodeSize = await MIN_NODE_SIZE(ctx);
+  if (deficientSubtree.items.length < minNodeSize) {
     log(`deficient subtree ${deficientSubtree._id}`);
     // If the subtree is too small, we need to rebalance
     if (i > 0) {
       // Try to move a key from the left sibling
       const leftSibling = (await ctx.db.get(n.subtrees[i - 1]))!;
-      if (leftSibling.items.length > MIN_NODE_SIZE(ctx)) {
+      if (leftSibling.items.length > minNodeSize) {
         log(`rotating right with left sibling ${leftSibling._id}`);
         // Rotate right
         const grandchild = leftSibling.subtrees.length
@@ -475,7 +478,7 @@ async function deleteFromNode(
     if (i < n.subtrees.length - 1) {
       // Try to move a key from the right sibling
       const rightSibling = (await ctx.db.get(n.subtrees[i + 1]))!;
-      if (rightSibling.items.length > MIN_NODE_SIZE(ctx)) {
+      if (rightSibling.items.length > minNodeSize) {
         log(`rotating left with right sibling ${rightSibling._id}`);
         // Rotate left
         const grandchild = rightSibling.subtrees.length
@@ -670,55 +673,60 @@ async function insertIntoNode(
       items: [...n.items.slice(0, i), item, ...n.items.slice(i)],
     });
   }
-  await ctx.db.patch(node, {
-    aggregate: n.aggregate && add(n.aggregate, itemAggregate(item)),
-  });
+  const newAggregate = n.aggregate && add(n.aggregate, itemAggregate(item));
+  if (newAggregate) {
+    await ctx.db.patch(node, {
+      aggregate: newAggregate,
+    });
+  }
 
   const newN = (await ctx.db.get(node))!;
-  if (newN.items.length > MAX_NODE_SIZE(ctx)) {
+  const maxNodeSize = await MAX_NODE_SIZE(ctx);
+  const minNodeSize = await MIN_NODE_SIZE(ctx);
+  if (newN.items.length > maxNodeSize) {
     if (
-      newN.items.length !== (MAX_NODE_SIZE(ctx)) + 1 ||
-      newN.items.length !== 2 * MIN_NODE_SIZE(ctx) + 1
+      newN.items.length !== maxNodeSize + 1 ||
+      newN.items.length !== 2 * minNodeSize + 1
     ) {
       throw new Error(`bad ${newN.items.length}`);
     }
-    log(`splitting node ${newN._id} at ${newN.items[MIN_NODE_SIZE(ctx)].k}`);
+    log(`splitting node ${newN._id} at ${newN.items[minNodeSize].k}`);
     const topLevel = nodeCounts(newN);
     const subCounts = await subtreeCounts(ctx.db, newN);
     const leftCount = add(
-      accumulate(topLevel.slice(0, MIN_NODE_SIZE(ctx))),
-      accumulate(subCounts.length ? subCounts.slice(0, MIN_NODE_SIZE(ctx) + 1) : []),
+      accumulate(topLevel.slice(0, minNodeSize)),
+      accumulate(subCounts.length ? subCounts.slice(0, minNodeSize + 1) : []),
     );
     const rightCount = add(
-      accumulate(topLevel.slice(MIN_NODE_SIZE(ctx) + 1)),
-      accumulate(subCounts.length ? subCounts.slice(MIN_NODE_SIZE(ctx) + 1) : []),
+      accumulate(topLevel.slice(minNodeSize + 1)),
+      accumulate(subCounts.length ? subCounts.slice(minNodeSize + 1) : []),
     );
     if (newN.aggregate && leftCount.count + rightCount.count + 1 !== newN.aggregate.count) {
       throw new Error(
         `bad count split ${leftCount.count} ${rightCount.count} ${newN.aggregate.count}`
       );
     }
-    if (newN.aggregate && leftCount.sum + rightCount.sum + newN.items[MIN_NODE_SIZE(ctx)].s !== newN.aggregate.sum) {
+    if (newN.aggregate && leftCount.sum + rightCount.sum + newN.items[minNodeSize].s !== newN.aggregate.sum) {
       throw new Error(
-        `bad sum split ${leftCount.sum} ${rightCount.sum} ${newN.items[MIN_NODE_SIZE(ctx)].s} ${newN.aggregate.sum}`
+        `bad sum split ${leftCount.sum} ${rightCount.sum} ${newN.items[minNodeSize].s} ${newN.aggregate.sum}`
       );
     }
     await ctx.db.patch(node, {
-      items: newN.items.slice(0, MIN_NODE_SIZE(ctx)),
+      items: newN.items.slice(0, minNodeSize),
       subtrees: newN.subtrees.length
-        ? newN.subtrees.slice(0, MIN_NODE_SIZE(ctx) + 1)
+        ? newN.subtrees.slice(0, minNodeSize + 1)
         : [],
       aggregate: leftCount,
     });
     const splitN = await ctx.db.insert("btreeNode", {
-      items: newN.items.slice(MIN_NODE_SIZE(ctx) + 1),
+      items: newN.items.slice(minNodeSize + 1),
       subtrees: newN.subtrees.length
-        ? newN.subtrees.slice(MIN_NODE_SIZE(ctx) + 1)
+        ? newN.subtrees.slice(minNodeSize + 1)
         : [],
       aggregate: rightCount,
     });
     return {
-      item: newN.items[MIN_NODE_SIZE(ctx)],
+      item: newN.items[minNodeSize],
       leftSubtree: node,
       rightSubtree: splitN,
       leftSubtreeCount: newN.aggregate && leftCount,
@@ -749,6 +757,7 @@ export async function mustGetTree(db: DatabaseReader) {
 async function getOrCreateTree(
   db: DatabaseWriter,
   getKey: FunctionHandle<"query", { doc: Doc<"btreeNode"> }, { key: Key; summand?: number }>,
+  maxNodeSize: number,
 ): Promise<Doc<"btree">> {
   const originalTree = await getTree(db);
   if (originalTree) {
@@ -765,6 +774,7 @@ async function getOrCreateTree(
   const id = await db.insert("btree", {
     root,
     getKey,
+    maxNodeSize,
   });
   const newTree = await db.get(id);
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
@@ -772,13 +782,13 @@ async function getOrCreateTree(
 }
 
 export const init = mutation({
-  args: { getKey: v.string() },
-  handler: async (ctx, { getKey }) => {
+  args: { getKey: v.string(), maxNodeSize: v.number() },
+  handler: async (ctx, { getKey, maxNodeSize }) => {
     const existing = await ctx.db.query("btree").unique();
     if (existing) {
       await ctx.db.delete(existing._id);
     }
-    await getOrCreateTree(ctx.db, getKey as any);
+    await getOrCreateTree(ctx.db, getKey as any, maxNodeSize);
   },
 });
 
